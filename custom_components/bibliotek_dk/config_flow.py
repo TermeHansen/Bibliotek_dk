@@ -1,7 +1,7 @@
 """Config flow for Dummy Garage integration."""
 from __future__ import annotations
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
@@ -26,6 +26,7 @@ from .const import (
     CONF_PINCODE,
     CONF_SHOW_DEBTS,
     CONF_SHOW_LOANS,
+    CONF_SHOW_ELOANS,
     CONF_SHOW_RESERVATIONS,
     CONF_UPDATE_INTERVAL,
     CONF_USER_ID,
@@ -84,6 +85,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Dummy Garage."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> OptionsFlow:
+        return OptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -201,6 +209,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
+                await self.async_set_unique_id(user_input[CONF_USER_ID])
+                # Abort the flow if a config entry with the same unique ID exists
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(title=info["title"], data=info["data"])
 
         return self.async_show_form(
@@ -219,6 +230,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_USER_ID, default=""): str,
                     vol.Required(CONF_PINCODE, default=""): str,
                     vol.Required(CONF_SHOW_LOANS, default=True): bool,
+                    vol.Required(CONF_SHOW_ELOANS, default=True): bool,
                     #                    vol.Required(CONF_SHOW_LOANS_OVERDUE, default=True): bool,
                     vol.Required(CONF_SHOW_DEBTS, default=True): bool,
                     vol.Required(CONF_SHOW_RESERVATIONS, default=True): bool,
@@ -227,6 +239,31 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+
+class OptionsFlow(config_entries.OptionsFlow):
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+
+        if user_input is not None:
+            # update config entry
+            new_data = {**self.config_entry.data, **user_input}
+            return self.async_create_entry(
+                title=self.config_entry.title, data=new_data
+            )
+        return self.async_show_form(
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema({
+                    vol.Required(CONF_SHOW_LOANS, default=True): bool,
+                    vol.Required(CONF_SHOW_ELOANS, default=True): bool,
+                    vol.Required(CONF_SHOW_DEBTS, default=True): bool,
+                    vol.Required(CONF_SHOW_RESERVATIONS, default=True): bool,
+                    vol.Optional(CONF_UPDATE_INTERVAL, default=UPDATE_INTERVAL): int,
+                }),
+                self.config_entry.options
+            )
         )
 
 

@@ -19,6 +19,7 @@
           "pincode": "PIN kode",
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
+          "show_eloans": "Vis lån fra eReolen",
           "show_debts": "Vis gebyrer",
           "show_reservations": "Vis reservationer"
         }

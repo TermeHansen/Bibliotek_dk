@@ -13,6 +13,7 @@ from .const import (
     CONF_MUNICIPALITY,
     CONF_PINCODE,
     CONF_USER_ID,
+    CONF_SHOW_ELOANS,
     DOMAIN,
 )
 
@@ -30,11 +31,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_HOST],
         entry.data[CONF_AGENCY],
         libraryName=entry.data[CONF_MUNICIPALITY],
+        use_eReolen=entry.data.get(CONF_SHOW_ELOANS, True),
     )
-
+    # update options listener
+    entry.async_on_unload(entry.add_update_listener(update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
+
+
+async def update_listener(hass, entry):
+    """Handle options update."""
+    myLibrary = hass.data[DOMAIN][entry.entry_id]
+    myLibrary.use_eReolen = entry.options[CONF_SHOW_ELOANS]
+    await hass.async_add_executor_job(myLibrary.update)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
