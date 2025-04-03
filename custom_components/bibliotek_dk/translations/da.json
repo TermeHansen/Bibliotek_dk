@@ -1,14 +1,14 @@
 {
   "config": {
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Du har allerede konfigureret"
     },
     "error": {
       "gatewayf": "Din kommune bruger WAYF (https://wayf.dk/) som login og understøttes ikke af integrationen",
       "user_exist": "Brugeren er allerede oprettet",
-      "cannot_connect": "Failed to connect",
-      "invalid_auth": "Invalid authentication",
-      "unknown": "Unexpected error"
+      "cannot_connect": "Problem med forbindelsen",
+      "invalid_auth": "forkert id eller pin kode",
+      "unknown": "Ukendt fejl"
     },
     "step": {
       "user": {
@@ -19,6 +19,20 @@
           "pincode": "PIN kode",
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
+          "show_eloans": "Vis lån fra eReolen",
+          "show_debts": "Vis gebyrer",
+          "show_reservations": "Vis reservationer"
+        }
+      }
+    }
+  },
+  "options": {
+    "step":{
+      "init": {
+        "data": {
+          "update_interval": "Opdateringsinterval i minutter",
+          "show_loans": "Vis lån",
+          "show_eloans": "Vis lån fra eReolen",
           "show_debts": "Vis gebyrer",
           "show_reservations": "Vis reservationer"
         }

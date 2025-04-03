@@ -1,0 +1,22 @@
+type: custom:auto-entities
+card:
+  type: entities
+  title: John Does Lån
+filter:
+  template: |-
+    {% set SENSOR = 'sensor.bibliotekslan_john_doe' -%}
+    {%- for book in states[SENSOR].attributes.loans -%}
+    {%- set DUEDATE = as_datetime(book.expire_date) -%}
+    {%- set authors = book.creators -%}
+      {{
+            {
+              'type': 'custom:template-entity-row',
+              'entity': SENSOR,
+              'state': time_until(DUEDATE),
+              'name': book.title,
+              'secondary': (authors if authors else "") + " (" + book.type + ")",
+              'icon': 'mdi:book-open-page-variant',
+              'image': book.cover,
+            }
+      }},
+    {%- endfor %}

@@ -16,6 +16,7 @@ from .const import (
     CREDITS,
     DOMAIN,
     CONF_SHOW_LOANS,
+    CONF_SHOW_ELOANS,
     CONF_SHOW_DEBTS,
     CONF_SHOW_RESERVATIONS,
 )
@@ -43,13 +44,19 @@ async def async_setup_entry(
         await hass.async_add_executor_job(myLibrary.update)
 
     # Create a coordinator
+    new_data = {**entry.data, **entry.options}
     coordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
         name="sensor",
         update_method=async_update_data,
-        update_interval=timedelta(minutes=int(entry.data[CONF_UPDATE_INTERVAL])),
+        update_interval=timedelta(minutes=int(new_data[CONF_UPDATE_INTERVAL])),
     )
+    myLibrary = hass.data[DOMAIN][entry.entry_id]
+    myLibrary.use_eReolen = new_data.get(CONF_SHOW_ELOANS, True)
+    myLibrary.get_loans = new_data[CONF_SHOW_LOANS]
+    myLibrary.get_depts = new_data[CONF_SHOW_DEBTS]
+    myLibrary.get_reservations = new_data[CONF_SHOW_RESERVATIONS]
 
     # Immediate refresh
     await coordinator.async_request_refresh()
@@ -57,20 +64,19 @@ async def async_setup_entry(
     sensors = []
 
     # Library
-    myLibrary = hass.data[DOMAIN][entry.entry_id]
     sensors.append(LibrarySensor(myLibrary, coordinator))
 
     # Loans
-    if entry.data[CONF_SHOW_LOANS]:
+    if True:  # new_data[CONF_SHOW_LOANS]:
         sensors.append(LoanSensor(myLibrary.user, coordinator))
         sensors.append(LoanOverdueSensor(myLibrary.user, coordinator))
 
     # Debts
-    if entry.data[CONF_SHOW_DEBTS]:
+    if True:  # new_data[CONF_SHOW_DEBTS]:
         sensors.append(DebtSensor(myLibrary.user, coordinator))
 
     # Reservations
-    if entry.data[CONF_SHOW_RESERVATIONS]:
+    if True:  # new_data[CONF_SHOW_RESERVATIONS]:
         sensors.append(ReservationSensor(myLibrary.user, coordinator))
         sensors.append(ReservationReadySensor(myLibrary.user, coordinator))
 

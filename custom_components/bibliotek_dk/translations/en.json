@@ -4,7 +4,7 @@
       "already_configured": "Device is already configured"
     },
     "error": {
-      "gatewayf": "Din kommune bruger WAYF (https://wayf.dk/) som login og understøttes ikke af integrationen",
+      "gatewayf": "Your municipality uses WAYF (https://wayf.dk/) as login, which is not support bu this integration",
       "user_exist": "User exist",
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
@@ -13,14 +13,28 @@
     "step": {
       "user": {
         "data": {
-          "name": "Navn på bruger",
+          "name": "User name",
           "municipality": "Municipality",
-          "user_id": "CPR eller lånernummer",
-          "pincode": "PIN kode",
-          "update_interval": "Opdateringsinterval i minutter",
-          "show_loans": "Vis lån",
-          "show_debts": "Vis gebyrer",
-          "show_reservations": "Vis reservationer"
+          "user_id": "CPR or library number",
+          "pincode": "PIN code",
+          "update_interval": "Update interval in minuts",
+          "show_loans": "Show loans",
+          "show_eloans": "Show loans from eReolen",
+          "show_debts": "Show depts",
+          "show_reservations": "Show reservations"
+        }
+      }
+    }
+  },
+  "options": {
+    "step":{
+      "init": {
+        "data": {
+          "update_interval": "Update interval in minuts",
+          "show_loans": "Show loans",
+          "show_eloans": "Show loans from eReolen",
+          "show_debts": "Show depts",
+          "show_reservations": "Show reservations"
         }
       }
     }

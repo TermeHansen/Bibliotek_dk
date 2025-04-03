@@ -9,6 +9,7 @@
           "pincode": "[%key:common::config_flow::data::pincode%]",
           "show_debts": "[%key:common::config_flow::data::show_debts%]",
           "show_loans": "[%key:common::config_flow::data::show_loans%]",
+          "show_eloans": "[%key:common::config_flow::data::show_eloans%]",
           "show_reservations": "[%key:common::config_flow::data::show_reservations%]",
           "update_interval": "[%key:common::config_flow::data::update_interval%]"
         }
