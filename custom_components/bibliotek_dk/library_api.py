@@ -34,7 +34,6 @@ class Library:
         self._json_header = JSON_HEADERS.copy()
         self._json_header["Origin"] = host
         self._json_header["Referer"] = host
-        self._access_token = ''
         self._user_token = ''
         self.branches = {}
         self._urls = {}
@@ -94,8 +93,8 @@ class Library:
             'query': branch_query,
             'variables': {'language': "DA", 'limit': 50, 'q': id}
         }
-        header = {**self.json_header, **{'Authorization': f'Bearer {self.access_token}', 'Accept': '*/*'}}
-        res = self.session.post('https://fbi-api.dbc.dk/bibdk21/graphql', headers=header, json=params)
+        header = {'Accept': '*/*'}
+        res = self.session.post("https://bibliotek.dk/api/bibdk21/graphql", headers=header, json=params)
         if res.status_code == 200:
             data = res.json()['data']['branches']
             for branch in data['result']:
@@ -186,19 +185,6 @@ class Library:
         return self._library_token
 
     @property
-    def access_token(self):
-        now = datetime.now() - timedelta(days=1)
-        if not self._access_token or self._access_token_exp < now:
-            res = self.session.get('https://bibliotek.dk')
-            if res.status_code == 200:
-                m = re.search(r'"accessToken":"([^"]+)".*?"exp":(\d+)', res.text)
-                if m:
-                    self._access_token = m.group(1)
-                    self._access_token_exp = datetime.fromtimestamp(int(m.group(2)))
-                    # _LOGGER.error(f'new access token {self._access_token_exp}')
-        return self._access_token
-
-    @property
     def urls(self):
         if not self._urls:
             res = self.session.get(f'{self.host}/user/me/loans')
@@ -221,7 +207,7 @@ class Library:
     # Get information on the user
     def fetchUserInfo(self):
         # Fetch the user profile page
-        res = self.session.get('https://fbs-openplatform.dbc.dk/external/agencyid/patrons/patronid/v2', headers=self.json_header)
+        res = self.session.get('https://fbs-openplatform.dbc.dk/external/agencyid/patrons/patronid/v4', headers=self.json_header)
         if res.status_code == 200:
             try:
                 data = res.json()['patron']

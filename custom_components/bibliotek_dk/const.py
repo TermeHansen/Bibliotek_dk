@@ -64,14 +64,33 @@ details_query = '''
 '''
 
 branch_query = '''
- query LibraryFragmentsSearch($q: String, $limit: PaginationLimitScalar, $offset: Int, $language: LanguageCodeEnum, $agencyId: String, $agencyTypes: [AgencyTypeEnum!]) {
- branches(q: $q, agencyid: $agencyId, language: $language, limit: $limit, offset: $offset, bibdkExcludeBranches:true, statuses:AKTIVE, agencyTypes: $agencyTypes) {
- hitcount
- result {
-   agencyName
-   agencyId
-   branchId
-   name }
- }
- }
+query LibraryFragmentsSearch(
+    $q: String,
+    $limit: PaginationLimitScalar,
+    $offset: Int,
+    $language: LanguageCodeEnum,
+    $agencyId: String,
+    $agencyTypes: [AgencyTypeEnum!]
+) {
+  branches(
+    q: $q,
+    agencyid: $agencyId,
+    language: $language,
+    limit: $limit,
+    offset: $offset,
+    bibdkExcludeBranches: true,
+    statuses: AKTIVE,
+    agencyTypes: $agencyTypes
+  ) {
+    hitcount
+    agencyUrl
+    result {
+      agencyName
+      agencyId
+      agencyType
+      branchId
+      name
+    }
+  }
+}
 '''
