@@ -161,7 +161,7 @@ class Library:
             if '"user"' in res.text:
                 self.loggedIn = self.host + '/logout'
                 self._user_token = res.text.split('"user"')[1].split('"')[1]
-                self._user_token_exp = datetime.now() + timedelta(days=7)
+                self._user_token_exp = datetime.now() + timedelta(days=1)
 
     @property
     def json_header(self):
@@ -170,18 +170,18 @@ class Library:
 
     @property
     def user_token(self):
-        now = datetime.now() - timedelta(days=1)
+        now = datetime.now() # - timedelta(days=1)
         if not self._user_token or self._user_token_exp < now:
             self.login()
-            # _LOGGER.error(f'new user token {self._user_token_exp}')
+            _LOGGER.error(f'new user token {self._user_token_exp}')
         return self._user_token
 
     @property
     def library_token(self):
-        now = datetime.now() - timedelta(days=1)
+        now = datetime.now() # - timedelta(days=1)
         if not self._user_token or self._user_token_exp < now:
             self.login()
-            # _LOGGER.error(f'new library token {self._user_token_exp}')
+#            _LOGGER.error(f'new library token {self._user_token_exp}')
         return self._library_token
 
     @property
@@ -287,28 +287,29 @@ class Library:
 
         # Physical books
         res = self.session.get("https://fbs-openplatform.dbc.dk/external/v1/agencyid/patrons/patronid/reservations/v2", headers=self.json_header)
-        materials = {item['transactionId']: item for item in res.json()}  # make sure only to take last if more than one item with same transaction
-        for material in materials.values():
-            id = material['recordId']
-            data = self._getDetails(id)
-            if data:
-                if material['state'] == 'readyForPickup':
-                    obj = libraryReservationReady(data)
-                else:
-                    obj = libraryReservation(data)
+        if res.status_code == 200:
+            materials = {item['transactionId']: item for item in res.json()}  # make sure only to take last if more than one item with same transaction
+            for material in materials.values():
+                id = material['recordId']
+                data = self._getDetails(id)
+                if data:
+                    if material['state'] == 'readyForPickup':
+                        obj = libraryReservationReady(data)
+                    else:
+                        obj = libraryReservation(data)
 
-                # Details
-                obj.id = id
-                obj.createdDate = parser.parse(material['dateOfReservation'], ignoretz=True)
-                obj.pickupLibrary = self._branchName(material['pickupBranch'])
-                if material['state'] == 'readyForPickup':
-                    obj.reservationNumber = material['pickupNumber']
-                    obj.pickupDate = parser.parse(material['pickupDeadline'], ignoretz=True)
-                    reservationsReady.append(obj)
-                else:
-                    obj.expireDate = parser.parse(material['expiryDate'], ignoretz=True)
-                    obj.queueNumber = material['numberInQueue']
-                    reservations.append(obj)
+                    # Details
+                    obj.id = id
+                    obj.createdDate = parser.parse(material['dateOfReservation'], ignoretz=True)
+                    obj.pickupLibrary = self._branchName(material['pickupBranch'])
+                    if material['state'] == 'readyForPickup':
+                        obj.reservationNumber = material['pickupNumber']
+                        obj.pickupDate = parser.parse(material['pickupDeadline'], ignoretz=True)
+                        reservationsReady.append(obj)
+                    else:
+                        obj.expireDate = parser.parse(material['expiryDate'], ignoretz=True)
+                        obj.queueNumber = material['numberInQueue']
+                        reservations.append(obj)
 
         # eReolen
         if self.use_eReolen:
