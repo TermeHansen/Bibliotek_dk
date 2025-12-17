@@ -170,16 +170,23 @@ class Library:
 
     @property
     def user_token(self):
-        now = datetime.now() # - timedelta(days=1)
-        if not self._user_token or self._user_token_exp < now:
+        now = datetime.now()
+        if not self._user_token:
+            self.login()
+        if self._user_token_exp < now:
+            self.loggedIn = ''
             self.login()
             _LOGGER.error(f'new user token {self._user_token_exp}')
         return self._user_token
 
     @property
     def library_token(self):
-        now = datetime.now() # - timedelta(days=1)
-        if not self._user_token or self._user_token_exp < now:
+        now = datetime.now()
+        if not self._user_token:
+            self.login()
+
+        if self._user_token_exp < now:
+            self.loggedIn = ''
             self.login()
 #            _LOGGER.error(f'new library token {self._user_token_exp}')
         return self._library_token
