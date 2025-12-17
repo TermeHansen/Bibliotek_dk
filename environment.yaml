@@ -1,0 +1,11 @@
+name: bibliotek_dk
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - aiohttp
+  - pytest
+  - pytest-asyncio
+  - freezegun
+  - requests
+  - ruff
