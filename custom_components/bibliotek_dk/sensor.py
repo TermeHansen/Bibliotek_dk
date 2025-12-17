@@ -84,7 +84,7 @@ async def async_setup_entry(
 
 
 def md5_unique_id(string):
-    return hashlib.md5(string.encode("utf-8")).hexdigest()
+    return hashlib.md5(string.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 class LibrarySensor(SensorEntity):
