@@ -1,4 +1,4 @@
-"""Config flow for Dummy Garage integration."""
+"""Config flow for Bibliotek integration."""
 from __future__ import annotations
 
 from homeassistant.core import HomeAssistant, callback
@@ -39,6 +39,101 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Timeout (seconds) applied to the library-list and municipality lookups.
+REQUEST_TIMEOUT = 10
+
+
+def refreshLibraries() -> tuple[dict, dict]:
+    """Fetch and parse the list of libraries from the fallback login page.
+
+    Returns a ``(libraries, excLibraries)`` pair: libraries usable through this
+    integration, and those that use ``gatewayf`` and therefore cannot be used.
+    """
+    session = requests.Session()
+    session.headers = HEADERS
+
+    try:
+        r = session.get(URL_FALLBACK + URL_LOGIN_PAGE, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+
+    except requests.exceptions.HTTPError as err:
+        raise CannotConnect from err
+    except requests.exceptions.Timeout as err:
+        _LOGGER.error(f"Timeout fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})")
+        raise CannotConnect from err
+    except requests.exceptions.TooManyRedirects as err:
+        _LOGGER.error(
+            f"Too many redirects fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})"
+        )
+        raise CannotConnect from err
+    except requests.exceptions.RequestException as err:
+        raise CannotConnect from err
+
+    try:
+        soup = BS(r.text, "html.parser")
+        librariesJSON = json.loads(
+            soup.find(
+                "script",
+                string=re.compile(
+                    r"^var libraries = (.)", re.MULTILINE | re.DOTALL
+                ),
+            ).string.replace("var libraries = ", "")
+        )
+    except (AttributeError, KeyError) as err:
+        _LOGGER.error(
+            f"Error loading the libraries from the fallback url. Error: {err}"
+        )
+        return {}, {}
+
+    libraries, excLibraries = {}, {}
+    if "folk" in librariesJSON.keys():
+        for library in librariesJSON["folk"]:
+            p = re.compile(r"^.+?[^\/:](?=[?\/]|$)")
+            m = p.match(library["registrationUrl"])
+            # Only use libraries NOT using gatewayf
+            if "gatewayf" not in library["registrationUrl"]:
+                libraries[library[CONF_NAME]] = {
+                    CONF_AGENCY: library[CONF_BRANCH_ID],
+                    CONF_HOST: m.group(),
+                }
+            else:
+                excLibraries[library[CONF_NAME]] = {
+                    CONF_AGENCY: library[CONF_BRANCH_ID],
+                    CONF_HOST: m.group(),
+                }
+    return libraries, excLibraries
+
+
+def municipalityFromCoor(lon, lat) -> str:
+    """Reverse-lookup the municipality name from a (lon, lat) coordinate."""
+    session = requests.Session()
+    session.headers = HEADERS
+
+    try:
+        r = session.get(
+            MUNICIPALITY_LOOKUP_URL.replace("LON", str(lon)).replace(
+                "LAT", str(lat)
+            ),
+            timeout=REQUEST_TIMEOUT,
+        )
+        r.raise_for_status()
+
+    except requests.exceptions.HTTPError as err:
+        _LOGGER.error(f"HTTP Error while fetching municipality: {err}")
+        return ""
+    except requests.exceptions.Timeout as err:
+        _LOGGER.error(f"Timeout fecthing municipality: {err}")
+        return ""
+    except requests.exceptions.TooManyRedirects as err:
+        _LOGGER.error(f"Too many redirects fecthing municipality: {err}")
+        return ""
+    except requests.exceptions.RequestException as err:
+        _LOGGER.error(f"Request Exception while fetching municipality: {err}")
+        return ""
+
+    municipality = json.loads(r.text)
+    return municipality["navn"] if "navn" in municipality else ""
 
 
 async def validate_input(
@@ -82,7 +177,7 @@ async def validate_input(
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Dummy Garage."""
+    """Handle a config flow for Bibliotek."""
 
     VERSION = 1
 
@@ -97,88 +192,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
 
-        # Fetch the list of libraries from a "fallback" loginpage
-        def refreshLibraries() -> tuple:
-            session = requests.Session()
-            session.headers = HEADERS
-
-            try:
-                r = session.get(URL_FALLBACK + URL_LOGIN_PAGE)
-                r.raise_for_status()
-
-            except requests.exceptions.HTTPError as err:
-                raise CannotConnect from err
-            except requests.exceptions.Timeout:
-                _LOGGER.error("Timeout fecthing (%s)", URL_FALLBACK + URL_LOGIN_PAGE)
-            except requests.exceptions.TooManyRedirects:
-                _LOGGER.error(
-                    "Too many redirects fecthing (%s)", URL_FALLBACK + URL_LOGIN_PAGE
-                )
-            except requests.exceptions.RequestException as err:
-                raise CannotConnect from err
-
-            try:
-                soup = BS(r.text, "html.parser")
-                librariesJSON = json.loads(
-                    soup.find(
-                        "script",
-                        text=re.compile(
-                            r"^var libraries = (.)", re.MULTILINE | re.DOTALL
-                        ),
-                    ).string.replace("var libraries = ", "")
-                )
-            except (AttributeError, KeyError) as err:
-                _LOGGER.error(
-                    "Error loading the libraries from the fallback url. Error: %s", err
-                )
-
-            libraries, excLibraries = {}, {}
-            if "folk" in librariesJSON.keys():
-                for library in librariesJSON["folk"]:
-                    p = re.compile(r"^.+?[^\/:](?=[?\/]|$)")
-                    m = p.match(library["registrationUrl"])
-                    # Only use libraries NOT using gatewayf
-                    if "gatewayf" not in library["registrationUrl"]:
-                        libraries[library[CONF_NAME]] = {
-                            CONF_AGENCY: library[CONF_BRANCH_ID],
-                            CONF_HOST: m.group(),
-                        }
-                    else:
-                        excLibraries[library[CONF_NAME]] = {
-                            CONF_AGENCY: library[CONF_BRANCH_ID],
-                            CONF_HOST: m.group(),
-                        }
-            return libraries, excLibraries
-
-        def municipalityFromCoor(lon, lat):
-            session = requests.Session()
-            session.headers = HEADERS
-
-            try:
-                r = session.get(
-                    MUNICIPALITY_LOOKUP_URL.replace("LON", str(lon)).replace(
-                        "LAT", str(lat)
-                    )
-                )
-                r.raise_for_status()
-
-            except requests.exceptions.HTTPError as err:
-                _LOGGER.error(f"HTTP Error while fetching (%s): {err}", URL_FALLBACK + URL_LOGIN_PAGE)
-                # Handle the error as needed, e.g., raise it, log it, or notify the user.
-                return ""
-            except requests.exceptions.Timeout:
-                _LOGGER.error("Timeout fecthing (%s)", URL_FALLBACK + URL_LOGIN_PAGE)
-            except requests.exceptions.TooManyRedirects:
-                _LOGGER.error(
-                    "Too many redirects fecthing (%s)", URL_FALLBACK + URL_LOGIN_PAGE
-                )
-            except requests.exceptions.RequestException as err:
-                _LOGGER.error(f"Request Exception while fetching (%s): {err}", URL_FALLBACK + URL_LOGIN_PAGE)
-                return ""
-
-            municipality = json.loads(r.text)
-            return municipality["navn"] if "navn" in municipality else ""
-
         errors = {}
 
         # Async fetch list of "folk" libraries
@@ -190,6 +203,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "cannot_connect"
             libraries, excLibraries = {}, {}
 
+        municipality = ""
         try:
             municipality = await self.hass.async_add_executor_job(
                 municipalityFromCoor,

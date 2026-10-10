@@ -4,9 +4,9 @@ Findings from a read-through of the whole repo (v0.6.1). Ordered so the
 highest-impact, lowest-risk work lands first. Each item names the file(s) and a
 concrete change.
 
-> **Status:** Sections 1 and 2 are done (see `CHANGELOG.md` 0.6.2). The URL /
-> fee-type field names were confirmed against the live DBC APIs and the library
-> frontend's own `dpl-react` bundle.
+> **Status:** Sections 1, 2 and 3 are done (see `CHANGELOG.md` 0.6.2 / 0.7.0). The
+> URL / fee-type field names were confirmed against the live DBC APIs and the
+> library frontend's own `dpl-react` bundle.
 
 ---
 
@@ -57,25 +57,38 @@ Duplicate `_LOGGER` lines removed from `library_api.py` and `sensor.py`.
 `pytest` is wired into `python-testing.yml` (run under both `Europe/Copenhagen`
 and `UTC`). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
-Still open: config-flow tests that mock `requests` for the library list and
-municipality lookup (currently `validate_input` is tested with a fake `Library`).
+Config-flow HTTP parsing is now covered too: `refreshLibraries` and
+`municipalityFromCoor` were extracted to module-level helpers and are tested with
+a fake `requests` session (success, gatewayf split, HTTP error, timeout, missing
+script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 ---
 
-## 3. Robustness / resilience
+## 3. Robustness / resilience — DONE
 
-- **No retry or timeout** on any `requests` call. Add a session-level timeout and
-  a small retry/backoff for transient 5xx, or rely on the coordinator's
-  `last_update_success` to mark entities unavailable (already done) plus logging.
-- **Silent failures:** most `if res.status_code == 200:` blocks have no `else`.
-  A non-200 leaves the previous state in place with no log. Add `else: _LOGGER.warning(...)`.
-- **`_getDetails` caching** (`self._details`) grows unbounded for the process
-  lifetime. Bound it (e.g. `functools.lru_cache` or a size cap).
-- **`update()` re-fetches user info only when `self.user.name` is falsy** — if the
-  first fetch fails, it retries forever (fine) but never refreshes profile data
-  otherwise. Decide whether profile fields should refresh periodically.
-- **`session` is never closed on unload.** `async_unload_entry` pops the entry but
-  the `requests.Session` lives on. Close it in unload.
+- **Timeout + retry:** every request now goes through `Library._get` / `_post`,
+  which apply a `(10, 30)` connect/read timeout, and the session is mounted with
+  a `urllib3.Retry` (3 attempts, backoff, 5xx + connection errors).
+- **Silent failures:** every `if res.status_code == 200:` block that lacked an
+  `else` now logs a warning with the status code (details, branch lookup, user
+  info, loans, eReolen loans/products, reservations, eReolen reservations,
+  debts, API-url discovery, token fetch).
+- **`_getDetails` caching:** the cache is bounded (`DETAILS_CACHE_MAX = 500`,
+  cleared when full) and a failed lookup returns `{}` instead of raising
+  `KeyError` on the cache.
+- **`update()` profile refresh:** the profile is fetched on the first poll and
+  then at most once a day (`_user_info_fetched`), so branch/address/notification
+  changes propagate without a restart.
+- **`session` on unload:** closed in `async_unload_entry` (done in 0.6.2).
+- **Extra:** eReolen reservation dates are parsed as naive UTC like the physical
+  path (they were tz-aware, which could break the mixed-list sort); a fee with
+  an empty `materials` list no longer crashes `fetchDebts`.
+- **Extra:** municipality auto-detection was broken for everyone — the DAWA
+  endpoint (`api.dataforsyningen.dk`) was retired 2026-10-01 and returned HTTP
+  410. Switched to the `dawa.companydata.dk` mirror (as affalddk did).
+- **Extra:** `Accept-Encoding` advertised `br`/`zstd`, which `requests` cannot
+  decode without optional packages, so some responses arrived as undecodable
+  bytes. Now only `gzip, deflate`.
 
 ---
 
@@ -94,7 +107,8 @@ municipality lookup (currently `validate_input` is tested with a fake `Library`)
   base (HA's `CoordinatorEntity` gives `available` + listener wiring for free).
 - **`if True:  # new_data[CONF_SHOW_LOANS]`** gates in `sensor.async_setup_entry`:
   the show/hide options are dead. Either honor the options (skip creating the
-  entity) or remove the options and the commented code.
+  entity) or remove the options and the commented code. — DONE (0.7.0: the gates
+  now honor the options; covered by tests).
 - **`DEBUG`** should be replaced by HA's `_LOGGER.debug` gating, not a module flag.
 
 ---
@@ -102,7 +116,7 @@ municipality lookup (currently `validate_input` is tested with a fake `Library`)
 ## 5. Repo hygiene / tooling
 
 - **`__init__.py` and `config_flow.py` docstrings say "Dummy Garage"** (copy-paste
-  from a template). Fix to "Bibliotek".
+  from a template). Fix to "Bibliotek". — DONE (0.7.0).
 - **Add `ruff format`** to CI (Ruff is configured but only `check` runs).
 - **No `hacs.json` `version`** — fine (HACS reads `manifest.json`), but confirm the
   `homeassistant` min version if you adopt newer HA APIs.

@@ -16,7 +16,10 @@ DOMAIN = "bibliotek_dk"
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+    # Only advertise encodings `requests` can decode out of the box. Advertising
+    # `br`/`zstd` makes servers return content we cannot decode unless the
+    # optional brotli/zstandard packages happen to be installed.
+    "Accept-Encoding": "gzip, deflate",
     "Accept-Language": "da,en-US;q=0.9,en;q=0.8",
     "Dnt": "1",
     "Upgrade-Insecure-Requests": "1",
@@ -24,12 +27,14 @@ HEADERS = {
 }
 
 JSON_HEADERS = {
-    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Encoding": "gzip, deflate",
     "Content-Type": "application/json",
     'Accept': '*/*',
 }
 
-MUNICIPALITY_LOOKUP_URL = "https://api.dataforsyningen.dk/kommuner/reverse?x=LON&y=LAT"
+# api.dataforsyningen.dk (DAWA) was retired 2026-10-01; the
+# dawa.companydata.dk mirror serves the same kommuner/reverse lookup.
+MUNICIPALITY_LOOKUP_URL = "https://dawa.companydata.dk/kommuner/reverse?x=LON&y=LAT"
 
 UPDATE_INTERVAL = 60
 URL_FALLBACK = "https://bibliotek.kk.dk"

@@ -72,18 +72,28 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 - **`library_api.py` is one large, stateful class.** `Library` keeps mutable
   class-level defaults and instance state across polls. `login()` and token
   refresh mutate `self.loggedIn`, `self._user_token`, `self._user_token_exp`.
-  Be careful: `_set_tokens` only sets `_user_token_exp` when a `"user"` token is
-  present, so `user_token` can compare against an attribute that was never set.
+  `_user_token_exp` is `None` until a user token is issued; the token properties
+  guard against that. All HTTP goes through `Library._get` / `_post`, which apply
+  the `REQUEST_TIMEOUT` and route through a session mounted with a `urllib3.Retry`
+  adapter — use them instead of calling `self.session.get/post` directly.
 - **`DEBUG = True` is hardcoded** at the top of `library_api.py`. It is not wired
-  to HA logging; leave it unless the task is specifically about logging.
-- **`sensor.py` has dead config gates:** `if True:  # new_data[CONF_SHOW_LOANS]`
-  and similar. The show/hide options currently do nothing for entity creation.
-- **`libraryMaterial.url` and `libraryDebt.feeType` are now populated** from the
+  to HA logging; leave it unless the task is specifically about logging. The
+  `Library._debug` helper gates on it.
+- **`update()` refreshes the profile at most once a day** (`_user_info_fetched`),
+  and on the first poll. The `fetch*` methods leave the previous state in place on
+  a failed request and log a warning.
+- **`_details` is a bounded cache** (`DETAILS_CACHE_MAX`); `_getDetails` returns
+  `{}` on failure instead of raising.
+- **`sensor.py` honors the show/hide options** when creating entities (0.7.0).
+- **`libraryMaterial.url` and `libraryDebt.feeType` are populated** from the
   API payloads (`ownerWork.workId` → bibliotek.dk work URL; eReolen ISBN →
   bibliotek.dk search; `debt["type"]` → fee type). Keep these in sync if the DBC
   response shape changes.
 - **`config_flow.py` no longer calls `SystemExit`** on HTTP failures; it raises
-  `CannotConnect`, which the flow maps to `errors["base"] = "cannot_connect"`.
+  `CannotConnect`, which the flow maps to `errors["base"] = "cannot_connect"`. The
+  library-list and municipality lookups are module-level helpers
+  (`refreshLibraries`, `municipalityFromCoor`) with timeouts, tested with a fake
+  `requests` session.
 - **`hass.data[DOMAIN]` is keyed by `entry_id`.** The duplicate-user check in
   `validate_input` iterates those values, so it only sees *loaded* entries.
 - **Options flow writes into `entry.data`**, not `entry.options`; the coordinator

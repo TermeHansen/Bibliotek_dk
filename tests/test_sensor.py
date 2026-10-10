@@ -7,6 +7,16 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
+from custom_components.bibliotek_dk import sensor as sensor_module
+from custom_components.bibliotek_dk.const import (
+    CONF_SHOW_DEBTS,
+    CONF_SHOW_LOANS,
+    CONF_SHOW_RESERVATIONS,
+    CONF_UPDATE_INTERVAL,
+    DOMAIN,
+)
 from custom_components.bibliotek_dk.library_api import (
     Library,
     libraryDebt,
@@ -17,7 +27,9 @@ from custom_components.bibliotek_dk.library_api import (
 from custom_components.bibliotek_dk.sensor import (
     DebtSensor,
     LibrarySensor,
+    LoanOverdueSensor,
     LoanSensor,
+    ReservationReadySensor,
     ReservationSensor,
     md5_unique_id,
 )
@@ -28,6 +40,35 @@ class FakeCoordinator:
 
     def __init__(self, success=True):
         self.last_update_success = success
+
+
+class FakeSetupCoordinator:
+    """Coordinator stand-in for async_setup_entry."""
+
+    def __init__(self, *args, **kwargs):
+        self.last_update_success = True
+
+    async def async_request_refresh(self):
+        return None
+
+    def async_add_listener(self, cb):
+        return lambda: None
+
+
+class FakeEntry:
+    def __init__(self, data):
+        self.entry_id = "entry1"
+        self.data = data
+        self.options = {}
+
+
+class FakeSetupHass:
+    def __init__(self, library):
+        self.data = {DOMAIN: {"entry1": library}}
+        self.config = type("C", (), {"longitude": 0.0, "latitude": 0.0})()
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
 
 
 def _library():
@@ -130,3 +171,66 @@ def test_sensor_availability_follows_coordinator():
     assert sensor.available is False
     sensor = LibrarySensor(lib, FakeCoordinator(success=True))
     assert sensor.available is True
+
+
+def _entry_data(**overrides):
+    base = {
+        CONF_SHOW_LOANS: True,
+        CONF_SHOW_DEBTS: True,
+        CONF_SHOW_RESERVATIONS: True,
+        CONF_UPDATE_INTERVAL: 60,
+    }
+    base.update(overrides)
+    return base
+
+
+async def _setup(monkeypatch, **overrides):
+    captured = {}
+
+    def fake_add(entities):
+        captured["entities"] = entities
+
+    monkeypatch.setattr(sensor_module, "DataUpdateCoordinator", FakeSetupCoordinator)
+    lib = _library()
+    hass = FakeSetupHass(lib)
+    entry = FakeEntry(_entry_data(**overrides))
+    await sensor_module.async_setup_entry(hass, entry, fake_add)
+    return captured.get("entities", [])
+
+
+@pytest.mark.asyncio
+async def test_setup_creates_all_sensors_when_enabled(monkeypatch):
+    entities = await _setup(monkeypatch)
+    types = {type(e).__name__ for e in entities}
+    assert types == {
+        "LibrarySensor",
+        "LoanSensor",
+        "LoanOverdueSensor",
+        "DebtSensor",
+        "ReservationSensor",
+        "ReservationReadySensor",
+    }
+
+
+@pytest.mark.asyncio
+async def test_setup_hides_disabled_sensor_groups(monkeypatch):
+    # Regression: these gates were `if True`, so the options did nothing.
+    entities = await _setup(
+        monkeypatch,
+        **{CONF_SHOW_LOANS: False, CONF_SHOW_DEBTS: False, CONF_SHOW_RESERVATIONS: False},
+    )
+    types = {type(e).__name__ for e in entities}
+    assert types == {"LibrarySensor"}
+    assert isinstance(entities[0], LibrarySensor)
+
+
+@pytest.mark.asyncio
+async def test_setup_only_loans_enabled(monkeypatch):
+    entities = await _setup(
+        monkeypatch,
+        **{CONF_SHOW_DEBTS: False, CONF_SHOW_RESERVATIONS: False},
+    )
+    types = {type(e).__name__ for e in entities}
+    assert types == {"LibrarySensor", "LoanSensor", "LoanOverdueSensor"}
+    assert any(isinstance(e, LoanOverdueSensor) for e in entities)
+    assert not any(isinstance(e, (DebtSensor, ReservationSensor, ReservationReadySensor)) for e in entities)

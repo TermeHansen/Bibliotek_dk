@@ -167,3 +167,121 @@ def test_token_expiry_is_none_before_first_login():
     # Regression: user_token compared an attribute that was never set.
     lib = Library("1234", "0000", "https://example.invalid", "710100")
     assert lib._user_token_exp is None
+
+
+class _FakeResponse:
+    def __init__(self, status_code=200, payload=None, text=""):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
+class _FakeSession:
+    """Session stub returning queued responses per HTTP verb."""
+
+    def __init__(self, post=None, get=None):
+        self._post = post
+        self._get = get
+
+    def post(self, url, **kwargs):
+        return self._post
+
+    def get(self, url, **kwargs):
+        return self._get
+
+
+def _ready_library(session):
+    """A Library with a valid token and a stubbed session (no login calls)."""
+    lib = Library("1234", "0000", "https://example.invalid", "710100")
+    lib.session = session
+    lib._urls = {"data-fbi-global-base-url": "https://details.invalid/graphql"}
+    lib._user_token = "x" * 8
+    lib._user_token_exp = dt.datetime.now() + dt.timedelta(hours=1)
+    return lib
+
+
+def test_session_is_configured_with_timeout_and_retries():
+    from custom_components.bibliotek_dk import library_api
+
+    lib = Library("1234", "0000", "https://example.invalid", "710100")
+    adapter = lib.session.get_adapter("https://example.invalid")
+    assert adapter.max_retries.total == 3
+    assert 500 in adapter.max_retries.status_forcelist
+    # The helpers apply a default timeout when the caller does not pass one.
+    assert library_api.REQUEST_TIMEOUT == (10, 30)
+
+
+def test_get_details_returns_empty_dict_on_non_200():
+    # Regression: a failed details fetch used to raise KeyError on the cache.
+    session = _FakeSession(post=_FakeResponse(status_code=500))
+    lib = _ready_library(session)
+    assert lib._getDetails("faust-1") == {}
+    # The failure must not be cached as a hit.
+    assert "faust-1" not in lib._details
+
+
+def test_get_details_caches_successful_lookup():
+    payload = {"data": {"manifestation": {"pid": "p"}}}
+    session = _FakeSession(post=_FakeResponse(payload=payload))
+    lib = _ready_library(session)
+    assert lib._getDetails("faust-1") == payload["data"]
+    assert lib._details["faust-1"] == payload["data"]
+
+
+def test_fetch_debts_keeps_fee_without_materials():
+    # A fee with an empty materials list must still be counted, not crash.
+    lib = _ready_library(_FakeSession())
+    fees = [{"creationDate": "2026-01-01", "amount": "25.00", "type": "overdue", "materials": []}]
+    lib.session = _FakeSession(get=_FakeResponse(payload=fees))
+    lib.get_depts = True
+
+    lib.fetchDebts()
+
+    assert len(lib.user.debts) == 1
+    assert lib.user.debts[0].feeAmount == "25.00"
+    assert lib.user.debts[0].feeType == "overdue"
+    assert lib.user.debtsAmount == 25.0
+
+
+def test_update_refreshes_profile_at_most_daily():
+    lib = _ready_library(_FakeSession())
+    lib._branchName = lambda _id: "Branch"
+    calls = {"n": 0}
+
+    def fake_fetch():
+        calls["n"] += 1
+        lib.user.name = "Test User"
+
+    lib.fetchUserInfo = fake_fetch
+    lib.get_loans = lib.get_reservations = lib.get_depts = False
+
+    lib.update()  # first poll -> fetch
+    lib.update()  # same day -> no fetch
+    assert calls["n"] == 1
+
+    # Force the timestamp into the past and poll again.
+    lib._user_info_fetched = dt.datetime.now() - dt.timedelta(days=2)
+    lib.update()
+    assert calls["n"] == 2
+
+
+def test_all_log_records_format_without_error(caplog):
+    # Regression: update()'s debug message had 3 placeholders but 4 args, which
+    # made the logging handler raise "not all arguments converted".
+    import logging
+
+    lib = _ready_library(_FakeSession())
+    lib._branchName = lambda _id: "Branch"
+    lib.fetchUserInfo = lambda: setattr(lib.user, "name", "Test User")
+    lib.fetchLoans = lib.fetchReservations = lib.fetchDebts = lambda: None
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.bibliotek_dk"):
+        lib.update()
+
+    # Formatting every record is what the handler does; a mismatch raises here.
+    for record in caplog.records:
+        record.getMessage()
+    assert any("Updating" in r.getMessage() for r in caplog.records)
