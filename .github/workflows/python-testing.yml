@@ -26,3 +26,8 @@ jobs:
       run: |
         # stop the build if there are Python syntax errors or undefined names
         ruff check --config pyproject.toml
+
+    - name: Test with pytest
+      shell: bash -l {0}
+      run: |
+        TZ=Europe/Copenhagen pytest tests --disable-warnings

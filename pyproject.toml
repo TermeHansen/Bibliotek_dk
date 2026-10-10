@@ -1,3 +1,7 @@
 [tool.ruff]
 lint.select = ["E", "F", "T", "B", "S"]
 lint.ignore = ["T201", "S101", "E501", "B006"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

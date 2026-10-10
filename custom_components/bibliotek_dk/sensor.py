@@ -16,7 +16,6 @@ from .const import (
     CREDITS,
     DOMAIN,
     CONF_SHOW_LOANS,
-    CONF_SHOW_ELOANS,
     CONF_SHOW_DEBTS,
     CONF_SHOW_RESERVATIONS,
 )
@@ -28,7 +27,6 @@ from homeassistant.const import (
 
 from .library_api import Library, libraryUser
 
-_LOGGER: logging.Logger = logging.getLogger(__package__)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -53,7 +51,6 @@ async def async_setup_entry(
         update_interval=timedelta(minutes=int(new_data[CONF_UPDATE_INTERVAL])),
     )
     myLibrary = hass.data[DOMAIN][entry.entry_id]
-    myLibrary.use_eReolen = new_data.get(CONF_SHOW_ELOANS, True)
     myLibrary.get_loans = new_data[CONF_SHOW_LOANS]
     myLibrary.get_depts = new_data[CONF_SHOW_DEBTS]
     myLibrary.get_reservations = new_data[CONF_SHOW_RESERVATIONS]

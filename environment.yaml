@@ -4,8 +4,10 @@ channels:
 dependencies:
   - python=3.12
   - aiohttp
+  - beautifulsoup4
   - pytest
   - pytest-asyncio
   - freezegun
+  - python-dateutil
   - requests
   - ruff

@@ -46,6 +46,9 @@ details_query = '''
 
     fragment ManifestationBasicDetails on Manifestation {
   pid
+  ownerWork {
+    workId
+  }
   titles {
     full
   }

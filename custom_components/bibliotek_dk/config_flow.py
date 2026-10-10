@@ -107,7 +107,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 r.raise_for_status()
 
             except requests.exceptions.HTTPError as err:
-                raise SystemExit(err) from err
+                raise CannotConnect from err
             except requests.exceptions.Timeout:
                 _LOGGER.error("Timeout fecthing (%s)", URL_FALLBACK + URL_LOGIN_PAGE)
             except requests.exceptions.TooManyRedirects:
@@ -115,7 +115,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "Too many redirects fecthing (%s)", URL_FALLBACK + URL_LOGIN_PAGE
                 )
             except requests.exceptions.RequestException as err:
-                raise SystemExit(err) from err
+                raise CannotConnect from err
 
             try:
                 soup = BS(r.text, "html.parser")
@@ -179,12 +179,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             municipality = json.loads(r.text)
             return municipality["navn"] if "navn" in municipality else ""
 
-        # Async fetch list of "folk" libraries
-        libraries, excLibraries = await self.hass.async_add_executor_job(
-            refreshLibraries
-        )
-
         errors = {}
+
+        # Async fetch list of "folk" libraries
+        try:
+            libraries, excLibraries = await self.hass.async_add_executor_job(
+                refreshLibraries
+            )
+        except CannotConnect:
+            errors["base"] = "cannot_connect"
+            libraries, excLibraries = {}, {}
+
         try:
             municipality = await self.hass.async_add_executor_job(
                 municipalityFromCoor,

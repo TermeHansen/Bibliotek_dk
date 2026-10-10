@@ -15,7 +15,6 @@ from .const import (
 DEBUG = True
 
 
-_LOGGER: logging.Logger = logging.getLogger(__package__)
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -25,7 +24,13 @@ class Library:
     use_eReolen, get_loans, get_reservations, get_depts = True, True, True, True
 
     def __init__(
-        self, userId: str, pincode: str, host: str, agency: str, libraryName=None
+        self,
+        userId: str,
+        pincode: str,
+        host: str,
+        agency: str,
+        libraryName=None,
+        use_eReolen: bool = True,
     ) -> None:
 
         self.session = requests.Session()
@@ -35,6 +40,7 @@ class Library:
         self._json_header["Origin"] = host
         self._json_header["Referer"] = host
         self._user_token = ''
+        self._user_token_exp = None
         self.branches = {}
         self._urls = {}
         self._details = {}
@@ -45,6 +51,7 @@ class Library:
         self.user = libraryUser(userId=userId, pincode=pincode)
         self.user.date = self.user.userId[:-4]
         self.municipality = libraryName
+        self.use_eReolen = use_eReolen
 
     # The update function is called from the coordinator from Home Assistant
     def update(self):
@@ -123,7 +130,7 @@ class Library:
 
             res = self.session.get(url)
             if res.status_code != 200:
-                _LOGGER.error("f({self.user.date}) Failed to login to {url}")
+                _LOGGER.error(f"({self.user.date}) Failed to login to {url}")
                 return
 
             soup = BS(res.text, "html.parser")
@@ -173,10 +180,10 @@ class Library:
         now = datetime.now()
         if not self._user_token:
             self.login()
-        if self._user_token_exp < now:
+        if self._user_token_exp is not None and self._user_token_exp < now:
             self.loggedIn = ''
             self.login()
-            _LOGGER.error(f'new user token {self._user_token_exp}')
+            _LOGGER.debug(f'new user token {self._user_token_exp}')
         return self._user_token
 
     @property
@@ -185,10 +192,9 @@ class Library:
         if not self._user_token:
             self.login()
 
-        if self._user_token_exp < now:
+        if self._user_token_exp is not None and self._user_token_exp < now:
             self.loggedIn = ''
             self.login()
-#            _LOGGER.error(f'new library token {self._user_token_exp}')
         return self._library_token
 
     @property
@@ -203,13 +209,13 @@ class Library:
         if self.loggedIn:
             url = self.loggedIn
             # Fetch the logout page, if given a 200 (true) reverse it to false
-            self.loggedIn = not self.session.get(url).status_code == 200
+            self.loggedIn = self.session.get(url).status_code != 200
             if not self.loggedIn:
                 self.session.close()
                 self.session = requests.Session()
                 self.session.headers = HEADERS
         if DEBUG:
-            _LOGGER.debug(f"({self.user.date}) is logged OUT @{url}: {~self.loggedIn}")
+            _LOGGER.debug(f"({self.user.date}) is logged OUT: {not self.loggedIn}")
 
     # Get information on the user
     def fetchUserInfo(self):
@@ -228,7 +234,7 @@ class Library:
                 self.user.pickupLibrary = self._branchName(data['preferredPickupBranch'])
                 self.libraryName = self._branchName(data['preferredPickupBranch'])
             except (AttributeError, KeyError) as err:
-                _LOGGER.error(f"Error getting user info {self.user.dat}. Error: {err}")
+                _LOGGER.error(f"Error getting user info {self.user.date}. Error: {err}")
 
     # Get the loans with all possible details
     def fetchLoans(self):
@@ -357,8 +363,10 @@ class Library:
                     obj = libraryDebt(data)
 
                     obj.feeDate = parser.parse(debt['creationDate'], ignoretz=True)
-                    obj.feeDueDate = parser.parse(debt['dueDate'], ignoretz=True)
+                    if debt.get('dueDate'):
+                        obj.feeDueDate = parser.parse(debt['dueDate'], ignoretz=True)
                     obj.feeAmount = debt['amount']
+                    obj.feeType = debt.get('type')
                     debts.append(obj)
         self.user.debts = debts
         self.user.debtsAmount = sum([float(obj.feeAmount) for obj in debts])
@@ -391,6 +399,11 @@ class libraryMaterial:
                 self.title = data['title']
                 self.creators = ' og '.join([item['firstName'] + item['lastName'] for item in data['contributors']])
                 self.type = data['format']
+                # The eReolen SPA has no server-side deep links, so link to a
+                # bibliotek.dk search on the product's ISBN (externalProductId).
+                isbn = (data.get('externalProductId') or {}).get('id')
+                if isbn:
+                    self.url = f"https://bibliotek.dk/?q={isbn}"
             elif 'manifestation' in data:
                 # physical book
                 self.coverUrl = data['manifestation']['cover']['thumbnail']
@@ -398,6 +411,9 @@ class libraryMaterial:
                 if data['manifestation']['creators']:
                     self.creators = data['manifestation']['creators'][0]['display']
                 self.type = data['manifestation']['materialTypes'][0]['materialTypeSpecific']['display']
+                workId = (data['manifestation'].get('ownerWork') or {}).get('workId')
+                if workId:
+                    self.url = f"https://bibliotek.dk/work/{workId}"
         except Exception as err:
             _LOGGER.error(f'Failed to set material data, {err}')
             _LOGGER.error(f'{data}')
@@ -419,4 +435,4 @@ class libraryReservationReady(libraryMaterial):
 
 
 class libraryDebt(libraryMaterial):
-    feeDate, feeDueDate, feeAmount = None, None, None
+    feeDate, feeDueDate, feeAmount, feeType = None, None, None, None

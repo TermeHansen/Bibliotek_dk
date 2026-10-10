@@ -110,6 +110,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local test credentials (never commit real CPR / PIN / tokens)
+/secret
+
 # Spyder project settings
 .spyderproject
 .spyproject

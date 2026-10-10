@@ -28,23 +28,29 @@ custom_components/bibliotek_dk/
 └── translations/{en,da}.json
 dashboard.yaml         # sample Lovelace dashboard (markdown templates)
 loans_card.yaml        # sample auto-entities card
+tests/                 # pytest suite; conftest.py stubs homeassistant (no HA needed)
 ```
 
 ## Commands
 
-Environment is conda/micromamba (`environment.yaml`). There is **no test suite**
-yet — the CI "python-testing" workflow only runs Ruff.
+Environment is conda/micromamba (`environment.yaml`). The test suite stubs the
+`homeassistant` package (`tests/conftest.py`), so it runs **without a Home
+Assistant install**.
 
 ```bash
 # Lint (this is what CI runs; must pass)
 ruff check --config pyproject.toml
+
+# Tests (no HA needed; run in both timezones like CI does)
+TZ=Europe/Copenhagen pytest tests --disable-warnings
+TZ=UTC pytest tests --disable-warnings
 
 # Create the dev environment
 micromamba create -f environment.yaml     # or: conda env create -f environment.yaml
 ```
 
 CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
-**HACS** validation; `python-testing.yml` runs Ruff. All three must pass.
+**HACS** validation; `python-testing.yml` runs Ruff and pytest. All must pass.
 
 ## Conventions
 
@@ -72,11 +78,12 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   to HA logging; leave it unless the task is specifically about logging.
 - **`sensor.py` has dead config gates:** `if True:  # new_data[CONF_SHOW_LOANS]`
   and similar. The show/hide options currently do nothing for entity creation.
-- **`libraryMaterial.url` and `libraryDebt.feeType` are referenced by sensors but
-  never assigned** — they are always `None`. Fixing them requires new API parsing.
-- **`config_flow.py` calls `raise SystemExit(err)`** on some HTTP failures inside
-  an executor job — this can take down the flow/process. Prefer HA errors
-  (`CannotConnect`, `InvalidAuth`).
+- **`libraryMaterial.url` and `libraryDebt.feeType` are now populated** from the
+  API payloads (`ownerWork.workId` → bibliotek.dk work URL; eReolen ISBN →
+  bibliotek.dk search; `debt["type"]` → fee type). Keep these in sync if the DBC
+  response shape changes.
+- **`config_flow.py` no longer calls `SystemExit`** on HTTP failures; it raises
+  `CannotConnect`, which the flow maps to `errors["base"] = "cannot_connect"`.
 - **`hass.data[DOMAIN]` is keyed by `entry_id`.** The duplicate-user check in
   `validate_input` iterates those values, so it only sees *loaded* entries.
 - **Options flow writes into `entry.data`**, not `entry.options`; the coordinator
