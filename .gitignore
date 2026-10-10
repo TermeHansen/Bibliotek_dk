@@ -130,7 +130,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-renoweb.code-workspace
+
+# macOS
 .DS_Store
+
+# Home Assistant runtime config
 /config/*
-affalddk.code-workspace

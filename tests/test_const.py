@@ -1,4 +1,5 @@
 """Regression guards for module-level constants."""
+
 from __future__ import annotations
 
 from custom_components.bibliotek_dk.const import (

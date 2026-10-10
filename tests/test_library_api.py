@@ -3,6 +3,7 @@
 These use small, anonymised fixtures shaped like the real DBC responses
 (see ``tests/data/``) and never touch the network.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -234,7 +235,14 @@ def test_get_details_caches_successful_lookup():
 def test_fetch_debts_keeps_fee_without_materials():
     # A fee with an empty materials list must still be counted, not crash.
     lib = _ready_library(_FakeSession())
-    fees = [{"creationDate": "2026-01-01", "amount": "25.00", "type": "overdue", "materials": []}]
+    fees = [
+        {
+            "creationDate": "2026-01-01",
+            "amount": "25.00",
+            "type": "overdue",
+            "materials": [],
+        }
+    ]
     lib.session = _FakeSession(get=_FakeResponse(payload=fees))
     lib.get_depts = True
 

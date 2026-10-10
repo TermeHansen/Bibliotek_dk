@@ -1,4 +1,5 @@
 """Config flow for Bibliotek integration."""
+
 from __future__ import annotations
 
 from homeassistant.core import HomeAssistant, callback
@@ -63,9 +64,7 @@ def refreshLibraries() -> tuple[dict, dict]:
         _LOGGER.error(f"Timeout fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})")
         raise CannotConnect from err
     except requests.exceptions.TooManyRedirects as err:
-        _LOGGER.error(
-            f"Too many redirects fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})"
-        )
+        _LOGGER.error(f"Too many redirects fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})")
         raise CannotConnect from err
     except requests.exceptions.RequestException as err:
         raise CannotConnect from err
@@ -75,9 +74,7 @@ def refreshLibraries() -> tuple[dict, dict]:
         librariesJSON = json.loads(
             soup.find(
                 "script",
-                string=re.compile(
-                    r"^var libraries = (.)", re.MULTILINE | re.DOTALL
-                ),
+                string=re.compile(r"^var libraries = (.)", re.MULTILINE | re.DOTALL),
             ).string.replace("var libraries = ", "")
         )
     except (AttributeError, KeyError) as err:
@@ -112,9 +109,7 @@ def municipalityFromCoor(lon, lat) -> str:
 
     try:
         r = session.get(
-            MUNICIPALITY_LOOKUP_URL.replace("LON", str(lon)).replace(
-                "LAT", str(lat)
-            ),
+            MUNICIPALITY_LOOKUP_URL.replace("LON", str(lon)).replace("LAT", str(lat)),
             timeout=REQUEST_TIMEOUT,
         )
         r.raise_for_status()
@@ -161,7 +156,9 @@ async def validate_input(
         ):
             raise UserExist
 
-    myLibrary = Library(data[CONF_USER_ID], data[CONF_PINCODE], data[CONF_HOST], data[CONF_AGENCY])
+    myLibrary = Library(
+        data[CONF_USER_ID], data[CONF_PINCODE], data[CONF_HOST], data[CONF_AGENCY]
+    )
     # Try to login to test the credentails
     if not await hass.async_add_executor_job(myLibrary.login):
         raise InvalidAuth
@@ -269,22 +266,30 @@ class OptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             # update config entry
             new_data = {**self.config_entry.data, **user_input}
-            return self.async_create_entry(
-                title=self.config_entry.title, data=new_data
-            )
+            return self.async_create_entry(title=self.config_entry.title, data=new_data)
         data = self.config_entry.data
-        options_schema = vol.Schema({
-                    vol.Optional(CONF_SHOW_LOANS, default=data[CONF_SHOW_LOANS]): bool,
-                    vol.Optional(CONF_SHOW_ELOANS, default=data.get(CONF_SHOW_ELOANS, True)): bool,
-                    vol.Optional(CONF_SHOW_DEBTS, default=data[CONF_SHOW_DEBTS]): bool,
-                    vol.Optional(CONF_SHOW_RESERVATIONS, default=data[CONF_SHOW_RESERVATIONS]): bool,
-                    vol.Optional(CONF_UPDATE_INTERVAL, default=data[CONF_UPDATE_INTERVAL]): int,
-                })
+        options_schema = vol.Schema(
+            {
+                vol.Optional(CONF_SHOW_LOANS, default=data[CONF_SHOW_LOANS]): bool,
+                vol.Optional(
+                    CONF_SHOW_ELOANS, default=data.get(CONF_SHOW_ELOANS, True)
+                ): bool,
+                vol.Optional(CONF_SHOW_DEBTS, default=data[CONF_SHOW_DEBTS]): bool,
+                vol.Optional(
+                    CONF_SHOW_RESERVATIONS, default=data[CONF_SHOW_RESERVATIONS]
+                ): bool,
+                vol.Optional(
+                    CONF_UPDATE_INTERVAL, default=data[CONF_UPDATE_INTERVAL]
+                ): int,
+            }
+        )
 
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(options_schema, self.config_entry.options)
-            )
+            data_schema=self.add_suggested_values_to_schema(
+                options_schema, self.config_entry.options
+            ),
+        )
 
 
 class gatewayf(HomeAssistantError):

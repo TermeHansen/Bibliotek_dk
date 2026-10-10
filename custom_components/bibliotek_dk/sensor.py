@@ -84,22 +84,110 @@ def md5_unique_id(string):
     return hashlib.md5(string.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
-class LibrarySensor(SensorEntity):
-    def __init__(
-        self,
-        myLibrary: Library,
-        coordinator: DataUpdateCoordinator,
-    ) -> None:
-        self.myLibrary = myLibrary
-        self._name = f"{self.myLibrary.libraryName} ({self.myLibrary.user.name})"
-        self._unique_id = md5_unique_id(
-            self.myLibrary.libraryName + self.myLibrary.user.userId
-        )
+class BibliotekBaseSensor(SensorEntity):
+    """Shared coordinator wiring for all Bibliotek sensors.
+
+    Subclasses set ``self._name`` and ``self._unique_id`` in ``__init__`` (after
+    calling ``super().__init__(coordinator)``) and implement ``state`` /
+    ``extra_state_attributes``.
+    """
+
+    def __init__(self, coordinator: DataUpdateCoordinator) -> None:
         self.coordinator = coordinator
 
     @property
     def name(self):
         return self._name
+
+    @property
+    def unique_id(self):
+        return self._unique_id
+
+    @property
+    def should_poll(self):
+        """No need to poll. Coordinator notifies entity of updates."""
+        return False
+
+    @property
+    def available(self):
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    async def async_update(self):
+        """Update the entity. Only used by the generic entity update service."""
+        await self.coordinator.async_request_refresh()
+
+    async def async_added_to_hass(self):
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
+
+
+class BibliotekCountSensor(BibliotekBaseSensor):
+    """Base for sensors whose state is the number of items in a list.
+
+    Subclasses provide ``_items`` and ``_item_attrs`` plus the icon variants.
+    """
+
+    _icon_empty = "mdi:book-cancel"
+    _icon_single = "mdi:book"
+    _icon_many = "mdi:book-multiple"
+
+    def __init__(
+        self,
+        library_user: libraryUser,
+        coordinator: DataUpdateCoordinator,
+        name: str,
+        unique_prefix: str,
+        attr_key: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self.libraryUser = library_user
+        self._name = name
+        self._unique_id = md5_unique_id(unique_prefix + library_user.userId)
+        self._attr_key = attr_key
+
+    @property
+    def _items(self):
+        raise NotImplementedError
+
+    def _item_attrs(self, item) -> dict:
+        raise NotImplementedError
+
+    @property
+    def icon(self):
+        amount = len(self._items)
+        if amount == 0:
+            return self._icon_empty
+        if amount == 1:
+            return self._icon_single
+        return self._icon_many
+
+    @property
+    def state(self):
+        return len(self._items)
+
+    @property
+    def extra_state_attributes(self):
+        attr = {"user": self.libraryUser.name}
+        attr[self._attr_key] = [self._item_attrs(item) for item in self._items]
+        attr[ATTR_ATTRIBUTION] = CREDITS
+        return attr
+
+
+class LibrarySensor(BibliotekBaseSensor):
+    def __init__(
+        self,
+        myLibrary: Library,
+        coordinator: DataUpdateCoordinator,
+    ) -> None:
+        super().__init__(coordinator)
+        self.myLibrary = myLibrary
+        self._name = f"{self.myLibrary.libraryName} ({self.myLibrary.user.name})"
+        self._unique_id = md5_unique_id(
+            self.myLibrary.libraryName + self.myLibrary.user.userId
+        )
 
     @property
     def icon(self):
@@ -108,9 +196,12 @@ class LibrarySensor(SensorEntity):
     @property
     def state(self):
         if len(self.myLibrary.user.loans) > 0:
-            if self.myLibrary.user.loans[0].expireDate is not None:  # eReolen reservation in Queue
+            if (
+                self.myLibrary.user.loans[0].expireDate is not None
+            ):  # eReolen reservation in Queue
                 return (
-                    self.myLibrary.user.loans[0].expireDate.date() - datetime.now().date()
+                    self.myLibrary.user.loans[0].expireDate.date()
+                    - datetime.now().date()
                 ).days
         return ""
 
@@ -144,401 +235,171 @@ class LibrarySensor(SensorEntity):
 
         return attr
 
-    @property
-    def unique_id(self):
-        return self._unique_id
 
-    @property
-    def should_poll(self):
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
+class LoanSensor(BibliotekCountSensor):
+    _icon_empty = "mdi:book-cancel"
+    _icon_single = "mdi:book"
+    _icon_many = "mdi:book-multiple"
 
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the entity. Only used by the generic entity update service."""
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+    def __init__(
+        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
+    ) -> None:
+        super().__init__(
+            library_user,
+            coordinator,
+            name=f"Bibliotekslån ({library_user.name})",
+            unique_prefix="Loans_",
+            attr_key="loans",
         )
 
+    @property
+    def _items(self):
+        return self.libraryUser.loans
 
-class LoanSensor(SensorEntity):
+    def _item_attrs(self, loan) -> dict:
+        return {
+            "title": loan.title,
+            "creators": loan.creators,
+            "type": loan.type,
+            "loan_date": loan.loanDate,
+            "expire_date": loan.expireDate,
+            "renewable": loan.renewAble,
+            "url": loan.url,
+            "cover": loan.coverUrl,
+        }
+
+
+class LoanOverdueSensor(BibliotekCountSensor):
+    _icon_empty = "mdi:alarm-off"
+    _icon_single = "mdi:alarm"
+    _icon_many = "mdi:alarm-multiple"
+
     def __init__(
-        self,
-        libraryUser: libraryUser,
-        coordinator: DataUpdateCoordinator,
+        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
     ) -> None:
-        self.libraryUser = libraryUser
-        self.coordinator = coordinator
-        self._name = f"Bibliotekslån ({self.libraryUser.name})"
-        self._unique_id = md5_unique_id("Loans_" + self.libraryUser.userId)
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def icon(self):
-        amount = len(self.libraryUser.loans)
-        if amount == 0:
-            return "mdi:book-cancel"
-        elif amount == 1:
-            return "mdi:book"
-        else:
-            return "mdi:book-multiple"
-
-    @property
-    def state(self):
-        return len(self.libraryUser.loans)
-
-    @property
-    def extra_state_attributes(self):
-        attr = {"user": self.libraryUser.name}
-        loans = []
-        for loan in self.libraryUser.loans:
-            loans.append(
-                {
-                    "title": loan.title,
-                    "creators": loan.creators,
-                    "type": loan.type,
-                    "loan_date": loan.loanDate,
-                    "expire_date": loan.expireDate,
-                    "renewable": loan.renewAble,
-                    "url": loan.url,
-                    "cover": loan.coverUrl,
-                }
-            )
-        attr["loans"] = loans
-        attr[ATTR_ATTRIBUTION] = CREDITS
-        return attr
-
-    @property
-    def unique_id(self):
-        return self._unique_id
-
-    @property
-    def should_poll(self):
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the entity. Only used by the generic entity update service."""
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+        super().__init__(
+            library_user,
+            coordinator,
+            name=f"Bibliotekslån overskredet ({library_user.name})",
+            unique_prefix="LoansOverdue_",
+            attr_key="loans_overdue",
         )
 
+    @property
+    def _items(self):
+        return self.libraryUser.loansOverdue
 
-class LoanOverdueSensor(SensorEntity):
+    def _item_attrs(self, loan) -> dict:
+        return {
+            "title": loan.title,
+            "creators": loan.creators,
+            "type": loan.type,
+            "loan_date": loan.loanDate,
+            "expire_date": loan.expireDate,
+            "url": loan.url,
+            "cover": loan.coverUrl,
+        }
+
+
+class ReservationSensor(BibliotekCountSensor):
+    _icon_empty = "mdi:book-cancel"
+    _icon_single = "mdi:book-plus"
+    _icon_many = "mdi:book-plus-multiple"
+
     def __init__(
-        self,
-        libraryUser: libraryUser,
-        coordinator: DataUpdateCoordinator,
+        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
     ) -> None:
-        self.libraryUser = libraryUser
-        self.coordinator = coordinator
-        self._name = f"Bibliotekslån overskredet ({self.libraryUser.name})"
-        self._unique_id = md5_unique_id("LoansOverdue_" + self.libraryUser.userId)
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def icon(self):
-        amount = len(self.libraryUser.loansOverdue)
-        if amount == 0:
-            return "mdi:alarm-off"
-        elif amount == 1:
-            return "mdi:alarm"
-        else:
-            return "mdi:alarm-multiple"
-
-    @property
-    def state(self):
-        return len(self.libraryUser.loansOverdue)
-
-    @property
-    def extra_state_attributes(self):
-        attr = {"user": self.libraryUser.name}
-        loans_overdue = []
-        for loan_overdue in self.libraryUser.loansOverdue:
-            loans_overdue.append(
-                {
-                    "title": loan_overdue.title,
-                    "creators": loan_overdue.creators,
-                    "type": loan_overdue.type,
-                    "loan_date": loan_overdue.loanDate,
-                    "expire_date": loan_overdue.expireDate,
-                    "url": loan_overdue.url,
-                    "cover": loan_overdue.coverUrl,
-                }
-            )
-        attr["loans_overdue"] = loans_overdue
-        attr[ATTR_ATTRIBUTION] = CREDITS
-        return attr
-
-    @property
-    def unique_id(self):
-        return self._unique_id
-
-    @property
-    def should_poll(self):
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the entity. Only used by the generic entity update service."""
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+        super().__init__(
+            library_user,
+            coordinator,
+            name=f"Reservationer ({library_user.name})",
+            unique_prefix="Reservations_",
+            attr_key="reservations",
         )
 
+    @property
+    def _items(self):
+        return self.libraryUser.reservations
 
-class ReservationSensor(SensorEntity):
+    def _item_attrs(self, reservation) -> dict:
+        return {
+            "title": reservation.title,
+            "creators": reservation.creators,
+            "type": reservation.type,
+            "queue_number": reservation.queueNumber,
+            "created_date": reservation.createdDate,
+            "expire_date": reservation.expireDate,
+            "pickup_library": reservation.pickupLibrary,
+            "url": reservation.url,
+            "cover": reservation.coverUrl,
+        }
+
+
+class ReservationReadySensor(BibliotekCountSensor):
+    _icon_empty = "mdi:book-cancel"
+    _icon_single = "mdi:book-plus"
+    _icon_many = "mdi:book-plus-multiple"
+
     def __init__(
-        self,
-        libraryUser: libraryUser,
-        coordinator: DataUpdateCoordinator,
+        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
     ) -> None:
-        self.libraryUser = libraryUser
-        self.coordinator = coordinator
-        self._name = f"Reservationer ({self.libraryUser.name})"
-        self._unique_id = md5_unique_id("Reservations_" + self.libraryUser.userId)
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def icon(self):
-        amount = len(self.libraryUser.reservations)
-        if amount == 0:
-            return "mdi:book-cancel"
-        elif amount == 1:
-            return "mdi:book-plus"
-        else:
-            return "mdi:book-plus-multiple"
-
-    @property
-    def state(self):
-        return len(self.libraryUser.reservations)
-
-    @property
-    def extra_state_attributes(self):
-        attr = {"user": self.libraryUser.name}
-        reservations = []
-        for reservation in self.libraryUser.reservations:
-            reservations.append(
-                {
-                    "title": reservation.title,
-                    "creators": reservation.creators,
-                    "type": reservation.type,
-                    "queue_number": reservation.queueNumber,
-                    "created_date": reservation.createdDate,
-                    "expire_date": reservation.expireDate,
-                    "pickup_library": reservation.pickupLibrary,
-                    "url": reservation.url,
-                    "cover": reservation.coverUrl,
-                }
-            )
-        attr["reservations"] = reservations
-        attr[ATTR_ATTRIBUTION] = CREDITS
-        return attr
-
-    @property
-    def unique_id(self):
-        return self._unique_id
-
-    @property
-    def should_poll(self):
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the entity. Only used by the generic entity update service."""
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+        super().__init__(
+            library_user,
+            coordinator,
+            name=f"Reservationer klar ({library_user.name})",
+            unique_prefix="ReservationsReady_",
+            attr_key="reservations_ready",
         )
 
+    @property
+    def _items(self):
+        return self.libraryUser.reservationsReady
 
-class ReservationReadySensor(SensorEntity):
+    def _item_attrs(self, reservation) -> dict:
+        return {
+            "title": reservation.title,
+            "creators": reservation.creators,
+            "type": reservation.type,
+            "reservation_number": reservation.reservationNumber,
+            "created_date": reservation.createdDate,
+            "pickup_date": reservation.pickupDate,
+            "pickup_library": reservation.pickupLibrary,
+            "url": reservation.url,
+            "cover": reservation.coverUrl,
+        }
+
+
+class DebtSensor(BibliotekCountSensor):
+    _icon_empty = "mdi:numeric-0"
+    _icon_single = "mdi:cash"
+    _icon_many = "mdi:cash-multiple"
+
     def __init__(
-        self,
-        libraryUser: libraryUser,
-        coordinator: DataUpdateCoordinator,
+        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
     ) -> None:
-        self.libraryUser = libraryUser
-        self.coordinator = coordinator
-        self._name = f"Reservationer klar ({self.libraryUser.name})"
-        self._unique_id = md5_unique_id("ReservationsReady_" + self.libraryUser.userId)
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def icon(self):
-        amount = len(self.libraryUser.reservationsReady)
-        if amount == 0:
-            return "mdi:book-cancel"
-        elif amount == 1:
-            return "mdi:book-plus"
-        else:
-            return "mdi:book-plus-multiple"
-
-    @property
-    def state(self):
-        return len(self.libraryUser.reservationsReady)
-
-    @property
-    def extra_state_attributes(self):
-        attr = {"user": self.libraryUser.name}
-        reservationsReady = []
-        for reservationReady in self.libraryUser.reservationsReady:
-            reservationsReady.append(
-                {
-                    "title": reservationReady.title,
-                    "creators": reservationReady.creators,
-                    "type": reservationReady.type,
-                    "reservation_number": reservationReady.reservationNumber,
-                    "created_date": reservationReady.createdDate,
-                    "pickup_date": reservationReady.pickupDate,
-                    "pickup_library": reservationReady.pickupLibrary,
-                    "url": reservationReady.url,
-                    "cover": reservationReady.coverUrl,
-                }
-            )
-        attr["reservations_ready"] = reservationsReady
-        attr[ATTR_ATTRIBUTION] = CREDITS
-        return attr
-
-    @property
-    def unique_id(self):
-        return self._unique_id
-
-    @property
-    def should_poll(self):
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the entity. Only used by the generic entity update service."""
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
+        super().__init__(
+            library_user,
+            coordinator,
+            name=f"Gebyrer ({library_user.name})",
+            unique_prefix="Debts_",
+            attr_key="debts",
         )
 
-
-class DebtSensor(SensorEntity):
-    def __init__(
-        self,
-        libraryUser: libraryUser,
-        coordinator: DataUpdateCoordinator,
-    ) -> None:
-        self.libraryUser = libraryUser
-        self.coordinator = coordinator
-        self._name = f"Gebyrer ({self.libraryUser.name})"
-        self._unique_id = md5_unique_id("Debts_" + self.libraryUser.userId)
-
     @property
-    def name(self):
-        return self._name
-
-    @property
-    def icon(self):
-        amount = len(self.libraryUser.debts)
-        if amount == 0:
-            return "mdi:numeric-0"
-        elif amount == 1:
-            return "mdi:cash"
-        else:
-            return "mdi:cash-multiple"
+    def _items(self):
+        return self.libraryUser.debts
 
     @property
     def state(self):
         return self.libraryUser.debtsAmount
 
-    @property
-    def extra_state_attributes(self):
-        attr = {"user": self.libraryUser.name}
-        debts = []
-        for debt in self.libraryUser.debts:
-            debts.append(
-                {
-                    "title": debt.title,
-                    "type": debt.type,
-                    "fee_date": debt.feeDate,
-                    "fee_type": debt.feeType,
-                    "fee_amount": debt.feeAmount,
-                    "url": debt.url,
-                    "cover": debt.coverUrl,
-                }
-            )
-        attr["debts"] = debts
-        attr[ATTR_ATTRIBUTION] = CREDITS
-        return attr
-
-    @property
-    def unique_id(self):
-        return self._unique_id
-
-    @property
-    def should_poll(self):
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the entity. Only used by the generic entity update service."""
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
+    def _item_attrs(self, debt) -> dict:
+        return {
+            "title": debt.title,
+            "type": debt.type,
+            "fee_date": debt.feeDate,
+            "fee_type": debt.feeType,
+            "fee_amount": debt.feeAmount,
+            "url": debt.url,
+            "cover": debt.coverUrl,
+        }

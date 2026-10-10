@@ -3,6 +3,7 @@
 The entities only read attributes off a ``Library``/``libraryUser`` object and a
 coordinator stub, so no Home Assistant machinery is required (see conftest.py).
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -217,7 +218,11 @@ async def test_setup_hides_disabled_sensor_groups(monkeypatch):
     # Regression: these gates were `if True`, so the options did nothing.
     entities = await _setup(
         monkeypatch,
-        **{CONF_SHOW_LOANS: False, CONF_SHOW_DEBTS: False, CONF_SHOW_RESERVATIONS: False},
+        **{
+            CONF_SHOW_LOANS: False,
+            CONF_SHOW_DEBTS: False,
+            CONF_SHOW_RESERVATIONS: False,
+        },
     )
     types = {type(e).__name__ for e in entities}
     assert types == {"LibrarySensor"}
@@ -233,4 +238,7 @@ async def test_setup_only_loans_enabled(monkeypatch):
     types = {type(e).__name__ for e in entities}
     assert types == {"LibrarySensor", "LoanSensor", "LoanOverdueSensor"}
     assert any(isinstance(e, LoanOverdueSensor) for e in entities)
-    assert not any(isinstance(e, (DebtSensor, ReservationSensor, ReservationReadySensor)) for e in entities)
+    assert not any(
+        isinstance(e, (DebtSensor, ReservationSensor, ReservationReadySensor))
+        for e in entities
+    )

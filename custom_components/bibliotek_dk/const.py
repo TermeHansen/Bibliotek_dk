@@ -29,7 +29,7 @@ HEADERS = {
 JSON_HEADERS = {
     "Accept-Encoding": "gzip, deflate",
     "Content-Type": "application/json",
-    'Accept': '*/*',
+    "Accept": "*/*",
 }
 
 # api.dataforsyningen.dk (DAWA) was retired 2026-10-01; the
@@ -42,7 +42,7 @@ URL_LOGIN = "/login"
 URL_LOGIN_PAGE = "/login?current-path=/user/me/dashboard"
 
 
-details_query = '''
+details_query = """
     query getManifestationViaMaterialByFaust($faust: String!) {
   manifestation(faust: $faust) {
     ...ManifestationBasicDetails
@@ -69,9 +69,9 @@ details_query = '''
     }
   }
 }
-'''
+"""
 
-branch_query = '''
+branch_query = """
 query LibraryFragmentsSearch(
     $q: String,
     $limit: PaginationLimitScalar,
@@ -101,4 +101,4 @@ query LibraryFragmentsSearch(
     }
   }
 }
-'''
+"""

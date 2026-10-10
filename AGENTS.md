@@ -40,6 +40,7 @@ Assistant install**.
 ```bash
 # Lint (this is what CI runs; must pass)
 ruff check --config pyproject.toml
+ruff format --check custom_components tests   # CI also enforces formatting
 
 # Tests (no HA needed; run in both timezones like CI does)
 TZ=Europe/Copenhagen pytest tests --disable-warnings
@@ -69,22 +70,27 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 
 ## Gotchas (read before editing)
 
-- **`library_api.py` is one large, stateful class.** `Library` keeps mutable
-  class-level defaults and instance state across polls. `login()` and token
-  refresh mutate `self.loggedIn`, `self._user_token`, `self._user_token_exp`.
-  `_user_token_exp` is `None` until a user token is issued; the token properties
-  guard against that. All HTTP goes through `Library._get` / `_post`, which apply
-  the `REQUEST_TIMEOUT` and route through a session mounted with a `urllib3.Retry`
-  adapter — use them instead of calling `self.session.get/post` directly.
-- **`DEBUG = True` is hardcoded** at the top of `library_api.py`. It is not wired
-  to HA logging; leave it unless the task is specifically about logging. The
-  `Library._debug` helper gates on it.
+- **`library_api.py` is one large, stateful class.** `Library` keeps instance
+  state across polls (`libraryUser` state is per-instance, set in `__init__`).
+  `login()` and token refresh mutate `self.loggedIn`, `self._user_token`,
+  `self._user_token_exp`. `_user_token_exp` is `None` until a user token is
+  issued; the token properties guard against that. All HTTP goes through
+  `Library._get` / `_post`, which apply the `REQUEST_TIMEOUT` and route through a
+  session mounted with a `urllib3.Retry` adapter — use them instead of calling
+  `self.session.get/post` directly.
+- **Logging is f-string based** throughout; `_LOGGER.debug(...)` is always emitted
+  (no module-level DEBUG flag). Gate output via HA's logger config
+  (`custom_components.bibliotek_dk: debug`). `Library._debug` just prefixes the
+  patron date.
 - **`update()` refreshes the profile at most once a day** (`_user_info_fetched`),
   and on the first poll. The `fetch*` methods leave the previous state in place on
   a failed request and log a warning.
 - **`_details` is a bounded cache** (`DETAILS_CACHE_MAX`); `_getDetails` returns
   `{}` on failure instead of raising.
 - **`sensor.py` honors the show/hide options** when creating entities (0.7.0).
+  All sensors derive from `BibliotekBaseSensor` (coordinator wiring) and the
+  count sensors from `BibliotekCountSensor`; a new count sensor only needs
+  `_items`, `_item_attrs`, the icon variants and its name/prefix.
 - **`libraryMaterial.url` and `libraryDebt.feeType` are populated** from the
   API payloads (`ownerWork.workId` → bibliotek.dk work URL; eReolen ISBN →
   bibliotek.dk search; `debt["type"]` → fee type). Keep these in sync if the DBC

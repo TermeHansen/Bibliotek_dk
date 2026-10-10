@@ -6,6 +6,7 @@ and unit-tested without a full Home Assistant install (mirrors the approach in
 the sibling ``affalddk`` repo). Only the small surface the integration actually
 touches is faked.
 """
+
 from __future__ import annotations
 
 import pathlib

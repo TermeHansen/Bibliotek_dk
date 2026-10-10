@@ -4,6 +4,7 @@
 ``Library`` so no network or Home Assistant runtime is needed. The library-list
 and municipality helpers are tested with a fake ``requests`` session.
 """
+
 from __future__ import annotations
 
 import json
@@ -162,6 +163,7 @@ async def test_validate_input_duplicate_user(monkeypatch):
 
 # --- refreshLibraries -------------------------------------------------------
 
+
 def test_refresh_libraries_parses_and_splits_gatewayf(monkeypatch):
     folk = [
         {
@@ -222,6 +224,7 @@ def test_refresh_libraries_missing_script_returns_empty(monkeypatch):
 
 
 # --- municipalityFromCoor ---------------------------------------------------
+
 
 def test_municipality_from_coor_returns_name(monkeypatch):
     response = FakeResponse(text=json.dumps({"navn": "København", "kode": "101"}))

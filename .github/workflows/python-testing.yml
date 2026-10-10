@@ -27,6 +27,11 @@ jobs:
         # stop the build if there are Python syntax errors or undefined names
         ruff check --config pyproject.toml
 
+    - name: Check formatting with Ruff
+      shell: bash -l {0}
+      run: |
+        ruff format --check custom_components tests
+
     - name: Test with pytest
       shell: bash -l {0}
       run: |

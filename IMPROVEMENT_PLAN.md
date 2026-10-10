@@ -4,9 +4,9 @@ Findings from a read-through of the whole repo (v0.6.1). Ordered so the
 highest-impact, lowest-risk work lands first. Each item names the file(s) and a
 concrete change.
 
-> **Status:** Sections 1, 2 and 3 are done (see `CHANGELOG.md` 0.6.2 / 0.7.0). The
-> URL / fee-type field names were confirmed against the live DBC APIs and the
-> library frontend's own `dpl-react` bundle.
+> **Status:** Sections 1–3 are done, plus the smaller Section 4/5 items (see
+> `CHANGELOG.md` 0.6.2 / 0.7.0). The URL / fee-type field names were confirmed
+> against the live DBC APIs and the library frontend's own `dpl-react` bundle.
 
 ---
 
@@ -92,24 +92,29 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 ---
 
-## 4. Architecture / code quality
+## 4. Architecture / code quality — DONE (except the big split)
 
 - **`Library` is a god-object** mixing HTTP, auth, parsing, and domain models.
   Split into: a transport/session layer (auth + tokens), a per-resource fetcher,
   and plain dataclasses for `libraryLoan` / `libraryReservation` / `libraryDebt`.
-  This is a bigger refactor — do it behind tests from section 2.
+  This is a bigger refactor — do it behind tests from section 2. **Still open**
+  (deferred; the smaller items below landed first).
 - **Class-level mutable defaults** (`loans = []`, `debts = []` on `libraryUser`)
   are shared until an instance assigns its own. Convert to instance state in
-  `__init__` to avoid cross-instance aliasing.
+  `__init__` to avoid cross-instance aliasing. — DONE (0.7.0).
 - **`sensor.py` entity classes are ~90% duplicated.** Five sensors repeat the same
   `name/icon/unique_id/should_poll/available/async_update/async_added_to_hass`.
   Extract a `BibliotekBaseSensor(SensorEntity)` with a shared `CoordinatorEntity`
   base (HA's `CoordinatorEntity` gives `available` + listener wiring for free).
+  — DONE (0.7.0): `BibliotekBaseSensor` + `BibliotekCountSensor`; the file dropped
+  from 544 to ~410 lines with no behavior change (verified against live data).
 - **`if True:  # new_data[CONF_SHOW_LOANS]`** gates in `sensor.async_setup_entry`:
   the show/hide options are dead. Either honor the options (skip creating the
   entity) or remove the options and the commented code. — DONE (0.7.0: the gates
   now honor the options; covered by tests).
 - **`DEBUG`** should be replaced by HA's `_LOGGER.debug` gating, not a module flag.
+  — DONE (0.7.0): the flag is gone; `_debug` emits unconditionally and is gated by
+  HA's logger config.
 
 ---
 
@@ -117,17 +122,21 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 - **`__init__.py` and `config_flow.py` docstrings say "Dummy Garage"** (copy-paste
   from a template). Fix to "Bibliotek". — DONE (0.7.0).
-- **Add `ruff format`** to CI (Ruff is configured but only `check` runs).
+- **Add `ruff format`** to CI (Ruff is configured but only `check` runs). — DONE
+  (0.7.0): formatting applied across the codebase and `ruff format --check` added
+  to `python-testing.yml`.
 - **No `hacs.json` `version`** — fine (HACS reads `manifest.json`), but confirm the
-  `homeassistant` min version if you adopt newer HA APIs.
+  `homeassistant` min version if you adopt newer HA APIs. — Still open.
 - **README** is decent but the "still in development" note and the sensor list
   predate eReolen/debts options. Refresh it and document the `show_*` options.
+  — DONE (0.7.0).
 - **CHANGELOG** uses a hand-maintained `<details>` collapse; consider
   auto-generating from tags (the repo already tags releases: `v0.6.1`, …).
+  — Still open.
 - **`.gitignore`** still contains unrelated template entries (`renoweb.code-workspace`,
-  `affalddk.code-workspace`). Trim.
+  `affalddk.code-workspace`). Trim. — DONE (0.7.0).
 - **Branch cleanup:** remote branches `cleanup`, `new_API`, `no_ereol` look merged;
-  verify and delete.
+  verify and delete. — Still open (needs a remote operation; not done).
 
 ---
 

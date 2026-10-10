@@ -33,6 +33,17 @@
   the municipality lookup) came back as undecodable bytes.
 * Fixed a logging crash ("not all arguments converted during string formatting")
   in the update debug message.
+* Internal cleanup (no user-visible behavior change):
+  - the sensor entities now share a common base class, removing ~90% duplicated
+    code (all sensors behave and report identical state/attributes).
+  - `libraryUser` state (loans, debts, …) is now per-instance instead of
+    class-level mutable defaults, avoiding cross-instance aliasing.
+  - the hardcoded `DEBUG` flag is gone; debug logging is gated by Home
+    Assistant's logger config (`custom_components.bibliotek_dk: debug`).
+  - all logging uses f-strings.
+* Applied `ruff format` across the codebase and added `ruff format --check` to CI.
+* Refreshed the README (debts/eReolen sensors, the `show_*` options, overdue
+  sensor) and trimmed unrelated `.gitignore` entries.
 * Added tests covering the config-flow HTTP parsing and the robustness fixes.
 
 ## Version 0.6.2
