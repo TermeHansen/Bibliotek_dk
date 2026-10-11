@@ -116,13 +116,18 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   `async_setup_entry`, keyed on `entry.entry_id`).
 - **The `renew_loans` service is registered globally** in `__init__.py` (one
   handler for all entries, keyed by `config_entry_id`) and removed when the last
-  entry unloads. It calls `Library.renewLoans()`, which POSTs a *bare JSON array*
-  of loan ids to `URL_LOANS_RENEW` (the DBC API rejects a `{"data": [...]}`
-  wrapper) and maps the response to `{loanId: renewalStatus}`. The handler
-  raises `HomeAssistantError` when nothing renewed. `renew_id` on the loan
-  sensor attributes is the API `loanId`.
-- **`diagnostics.py` redacts `CONF_USER_ID` and `CONF_PINCODE`** via
-  `async_redact_data`; keep any new credential keys in its `TO_REDACT` set.
+  entry unloads. It is registered with `supports_response=OPTIONAL` so
+  automations can read the per-loan status back. It calls `Library.renewLoans()`,
+  which POSTs a *bare JSON array* of loan ids to `URL_LOANS_RENEW` (the DBC API
+  rejects a `{"data": [...]}` wrapper) and maps the response to
+  `{loanId: renewalStatus}`. The handler raises `HomeAssistantError` when nothing
+  renewed, and on success asks the entry's coordinator (`library.coordinator`,
+  set in `sensor.async_setup_entry`) for a refresh — it does **not** reload the
+  entry, which would rebuild the `Library` and drop the last-good results kept
+  for API outages. `renew_id` on the loan sensor attributes is the API `loanId`.
+- **`diagnostics.py` redacts `CONF_USER_ID`, `CONF_PINCODE`, `CONF_NAME` and the
+  patron `name` key** via `async_redact_data`; keep any new credential or
+  identity keys in its `TO_REDACT` set.
 - **`libraryMaterial.url` and `libraryDebt.feeType` are populated** from the
   API payloads (`ownerWork.workId` → bibliotek.dk work URL; eReolen ISBN →
   bibliotek.dk search; `debt["type"]` → fee type). Keep these in sync if the DBC

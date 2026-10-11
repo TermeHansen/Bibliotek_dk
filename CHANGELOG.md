@@ -8,7 +8,9 @@
 
 * New service `bibliotek_dk.renew_loans` to renew one or more physical loans.
   Pass the `config_entry_id` and the `loan_ids` (the `renew_id` attribute on the
-  loans sensor); it returns the per-loan renewal status.
+  loans sensor); it returns the per-loan renewal status (usable from an
+  automation's `response_variable`). Invalid loan ids are rejected with a clear
+  error, and a successful renewal refreshes the sensors in place.
 * All sensors for an account are now grouped under a single Home Assistant
   device (one device per config entry), instead of floating loose entities.
 * The debts sensor is now a proper monetary sensor: `device_class: monetary`,
@@ -16,7 +18,7 @@
   formatted as currency.
 * Added diagnostics support (Settings → Devices & Services → the integration →
   Download diagnostics). The account snapshot is included with the CPR/library
-  number and PIN redacted.
+  number, PIN and account/patron names redacted.
 * The loans sensor now exposes a `renew_id` attribute per loan, used by the
   renew service.
 * `hacs.json` now declares a minimum Home Assistant version.

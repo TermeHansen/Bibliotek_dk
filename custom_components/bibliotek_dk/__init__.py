@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 
 from .library_api import Library
@@ -42,9 +42,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
     # The service is global (one handler for all entries); register it once.
+    # supports_response lets automations read the per-loan status back.
     if not hass.services.has_service(DOMAIN, SERVICE_RENEW_LOANS):
         hass.services.async_register(
-            DOMAIN, SERVICE_RENEW_LOANS, _make_renew_loans_handler(hass)
+            DOMAIN,
+            SERVICE_RENEW_LOANS,
+            _make_renew_loans_handler(hass),
+            supports_response=SupportsResponse.OPTIONAL,
         )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -55,8 +59,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 def _make_renew_loans_handler(hass: HomeAssistant):
     """Build the ``renew_loans`` service handler.
 
-    Renews the given physical loans and reloads the entry so the new due dates
-    show up immediately instead of at the next poll.
+    Renews the given physical loans and asks the coordinator for a refresh so
+    the new due dates show up immediately instead of at the next poll.
     """
 
     async def async_renew_loans(call: ServiceCall) -> dict:
@@ -66,16 +70,17 @@ def _make_renew_loans_handler(hass: HomeAssistant):
             raise HomeAssistantError(
                 f"No Bibliotek configuration entry with id '{entry_id}'"
             )
-        loan_ids = call.data.get(ATTR_LOAN_IDS) or []
-        if isinstance(loan_ids, str):
-            loan_ids = [loan_ids]
-        if not loan_ids:
-            raise HomeAssistantError("No loan ids given to renew")
+        loan_ids = _normalize_loan_ids(call.data.get(ATTR_LOAN_IDS))
 
         status = await hass.async_add_executor_job(library.renewLoans, loan_ids)
-        # Refresh the sensors right away (the coordinator lives in sensor.py).
-        await hass.config_entries.async_reload(entry_id)
-        if not any(result == "renewed" for result in status.values()):
+        if any(result == "renewed" for result in status.values()):
+            # Refresh the sensors right away (the coordinator lives in sensor.py)
+            # instead of reloading the entry, which would rebuild the Library and
+            # discard the last-good results kept for API outages.
+            coordinator = getattr(library, "coordinator", None)
+            if coordinator is not None:
+                await coordinator.async_request_refresh()
+        else:
             # Surface a hard failure (bad ids, blocked patron, ...) to the caller
             # instead of silently reporting success.
             raise HomeAssistantError(
@@ -84,6 +89,25 @@ def _make_renew_loans_handler(hass: HomeAssistant):
         return {"renewed": status}
 
     return async_renew_loans
+
+
+def _normalize_loan_ids(raw) -> list[int]:
+    """Return the loan ids as a list of ints, or raise a clear error."""
+    if raw is None:
+        raise HomeAssistantError("No loan ids given to renew")
+    if isinstance(raw, (str, int)):
+        raw = [raw]
+    loan_ids = []
+    for value in raw:
+        try:
+            loan_ids.append(int(value))
+        except (TypeError, ValueError) as err:
+            raise HomeAssistantError(
+                f"Invalid loan id '{value}': loan ids must be integers"
+            ) from err
+    if not loan_ids:
+        raise HomeAssistantError("No loan ids given to renew")
+    return loan_ids
 
 
 async def update_listener(hass, entry):

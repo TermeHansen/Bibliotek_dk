@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from custom_components.bibliotek_dk.const import (
+    CONF_NAME,
     CONF_PINCODE,
     CONF_USER_ID,
     DOMAIN,
@@ -36,15 +37,23 @@ def _library():
 
 
 @pytest.mark.asyncio
-async def test_diagnostics_redacts_credentials():
+async def test_diagnostics_redacts_credentials_and_name():
     hass = _FakeHass(_library())
-    entry = _FakeEntry({CONF_USER_ID: "1234567890", CONF_PINCODE: "4321"})
+    entry = _FakeEntry(
+        {
+            CONF_USER_ID: "1234567890",
+            CONF_PINCODE: "4321",
+            CONF_NAME: "Home account",
+        }
+    )
 
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
     assert diag["entry"][CONF_USER_ID] == "**REDACTED**"
     assert diag["entry"][CONF_PINCODE] == "**REDACTED**"
-    assert diag["account"]["name"] == "Test User"
+    assert diag["entry"][CONF_NAME] == "**REDACTED**"
+    # The patron's real name must not leak either.
+    assert diag["account"]["name"] == "**REDACTED**"
     assert diag["account"]["debts_amount"] == 12.5
     assert diag["account"]["counts"]["loans"] == 0
 
@@ -57,4 +66,6 @@ async def test_diagnostics_handles_missing_library():
 
     diag = await async_get_config_entry_diagnostics(hass, entry)
 
-    assert diag["account"]["name"] is None
+    # No crash without a loaded library; the name key is still redacted.
+    assert diag["account"]["name"] == "**REDACTED**"
+    assert diag["account"]["counts"]["loans"] == 0

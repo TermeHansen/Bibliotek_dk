@@ -11,9 +11,11 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_PINCODE, CONF_USER_ID, DOMAIN
+from .const import CONF_NAME, CONF_PINCODE, CONF_USER_ID, DOMAIN
 
-TO_REDACT = {CONF_PINCODE, CONF_USER_ID}
+# Credentials plus the configured account name and the patron's real name, so a
+# shared diagnostics file does not leak the user's identity.
+TO_REDACT = {CONF_NAME, CONF_PINCODE, CONF_USER_ID, "name"}
 
 
 async def async_get_config_entry_diagnostics(

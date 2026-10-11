@@ -61,6 +61,9 @@ async def async_setup_entry(
     myLibrary.get_loans = new_data[CONF_SHOW_LOANS]
     myLibrary.get_depts = new_data[CONF_SHOW_DEBTS]
     myLibrary.get_reservations = new_data[CONF_SHOW_RESERVATIONS]
+    # Expose the coordinator so services (renew_loans) can request a refresh
+    # without reloading the whole config entry.
+    myLibrary.coordinator = coordinator
 
     # Immediate refresh
     await coordinator.async_request_refresh()

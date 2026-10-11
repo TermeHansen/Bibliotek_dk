@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.bibliotek_dk import _make_renew_loans_handler
+from custom_components.bibliotek_dk import (
+    _make_renew_loans_handler,
+    _normalize_loan_ids,
+)
 from custom_components.bibliotek_dk.const import (
     ATTR_LOAN_IDS,
     CONF_CONFIG_ENTRY_ID,
@@ -20,8 +23,9 @@ class _FakeServices:
     def has_service(self, domain, service):
         return (domain, service) in self.registered
 
-    def async_register(self, domain, service, handler):
+    def async_register(self, domain, service, handler, supports_response=None):
         self.registered[(domain, service)] = handler
+        self.registered[("_response", domain, service)] = supports_response
 
     def async_remove(self, domain, service):
         self.removed.append((domain, service))
@@ -52,10 +56,19 @@ class _FakeCall:
         self.data = data
 
 
+class _FakeCoordinator:
+    def __init__(self):
+        self.refreshes = 0
+
+    async def async_request_refresh(self):
+        self.refreshes += 1
+
+
 class _FakeLibrary:
     def __init__(self, result=None):
         self.calls = []
         self._result = result
+        self.coordinator = _FakeCoordinator()
 
     def renewLoans(self, loan_ids):
         self.calls.append(loan_ids)
@@ -65,7 +78,7 @@ class _FakeLibrary:
 
 
 @pytest.mark.asyncio
-async def test_renew_loans_service_renews_and_reloads():
+async def test_renew_loans_service_renews_and_refreshes():
     library = _FakeLibrary()
     hass = _FakeHass(library)
     handler = _make_renew_loans_handler(hass)
@@ -74,9 +87,12 @@ async def test_renew_loans_service_renews_and_reloads():
         _FakeCall({CONF_CONFIG_ENTRY_ID: "entry1", ATTR_LOAN_IDS: ["7", "8"]})
     )
 
-    assert library.calls == [["7", "8"]]
-    assert result == {"renewed": {"7": "renewed"}}
-    assert hass.config_entries.reloaded == ["entry1"]
+    # Ids are normalized to ints for the API.
+    assert library.calls == [[7, 8]]
+    assert result == {"renewed": {7: "renewed"}}
+    # The existing coordinator is refreshed; the entry is not rebuilt.
+    assert library.coordinator.refreshes == 1
+    assert hass.config_entries.reloaded == []
 
 
 @pytest.mark.asyncio
@@ -87,7 +103,7 @@ async def test_renew_loans_service_accepts_single_string_id():
 
     await handler(_FakeCall({CONF_CONFIG_ENTRY_ID: "entry1", ATTR_LOAN_IDS: "7"}))
 
-    assert library.calls == [["7"]]
+    assert library.calls == [[7]]
 
 
 @pytest.mark.asyncio
@@ -124,3 +140,70 @@ async def test_renew_loans_service_raises_when_nothing_renewed():
 
     with pytest.raises(HomeAssistantError):
         await handler(_FakeCall({CONF_CONFIG_ENTRY_ID: "entry1", ATTR_LOAN_IDS: ["1"]}))
+
+    # A denied renewal must not refresh or rebuild anything.
+    assert library.coordinator.refreshes == 0
+    assert hass.config_entries.reloaded == []
+
+
+class _FakeSetupEntry:
+    def __init__(self):
+        self.entry_id = "entry1"
+        self.title = "Test"
+        self.data = {
+            "user_id": "1234",
+            "pincode": "0000",
+            "host": "https://example.invalid",
+            "agency": "710100",
+            "municipality": "Test",
+        }
+        self.options = {}
+
+    def async_on_unload(self, func):
+        return None
+
+    def add_update_listener(self, func):
+        return func
+
+
+class _FakeSetupHass:
+    def __init__(self):
+        self.data = {}
+        self.services = _FakeServices()
+        self.config_entries = _FakeSetupConfigEntries()
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
+
+
+class _FakeSetupConfigEntries:
+    async def async_forward_entry_setups(self, entry, platforms):
+        return True
+
+
+@pytest.mark.asyncio
+async def test_setup_registers_service_with_response_support(monkeypatch):
+    from custom_components.bibliotek_dk import async_setup_entry
+    from custom_components.bibliotek_dk.const import SERVICE_RENEW_LOANS
+
+    hass = _FakeSetupHass()
+    entry = _FakeSetupEntry()
+
+    assert await async_setup_entry(hass, entry) is True
+
+    key = (DOMAIN, SERVICE_RENEW_LOANS)
+    assert key in hass.services.registered
+    # Without supports_response, response_variable is rejected before the handler.
+    assert hass.services.registered[("_response", *key)] == "optional"
+
+
+def test_normalize_loan_ids_rejects_non_integers():
+    from homeassistant.exceptions import HomeAssistantError
+
+    assert _normalize_loan_ids(["1", 2]) == [1, 2]
+    with pytest.raises(HomeAssistantError):
+        _normalize_loan_ids(["123x"])
+    with pytest.raises(HomeAssistantError):
+        _normalize_loan_ids([None])
+    with pytest.raises(HomeAssistantError):
+        _normalize_loan_ids([])
