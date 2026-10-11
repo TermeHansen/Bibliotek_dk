@@ -25,11 +25,14 @@ custom_components/bibliotek_dk/
 ├── models.py          # libraryUser + libraryMaterial/Loan/Reservation/Debt holders
 ├── library_api.py     # Library facade: update(), fetch* methods, caches
 ├── sensor.py          # DataUpdateCoordinator + the sensor entities
+├── diagnostics.py     # async_get_config_entry_diagnostics (credentials redacted)
+├── services.yaml      # bibliotek_dk.renew_loans service schema
 ├── manifest.json      # version, requirements, codeowners
 ├── strings.json       # translation source (HA requires this to mirror translations/)
 └── translations/{en,da}.json
 dashboard.yaml         # sample Lovelace dashboard (markdown templates)
-loans_card.yaml        # sample auto-entities card
+loans_card.yaml        # drop-in auto-entities card (self-discovers the sensor)
+loans_card_decluttering.yaml  # reusable decluttering-card template
 tests/                 # pytest suite; conftest.py stubs homeassistant (no HA needed)
 ```
 
@@ -109,7 +112,23 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 - **`sensor.py` honors the show/hide options** when creating entities (0.7.0).
   All sensors derive from `BibliotekBaseSensor` (coordinator wiring) and the
   count sensors from `BibliotekCountSensor`; a new count sensor only needs
-  `_items`, `_item_attrs`, the icon variants and its name/prefix.
+  `_items`, `_item_attrs`, the icon variants and its name/prefix. Every sensor
+  is grouped under one HA device per config entry (`_attr_device_info` is set in
+  `async_setup_entry`, keyed on `entry.entry_id`).
+- **The `renew_loans` service is registered globally** in `__init__.py` (one
+  handler for all entries, keyed by `config_entry_id`) and removed when the last
+  entry unloads. It is registered with `supports_response=OPTIONAL` so
+  automations can read the per-loan status back. It calls `Library.renewLoans()`,
+  which POSTs a *bare JSON array* of loan ids to `URL_LOANS_RENEW` (the DBC API
+  rejects a `{"data": [...]}` wrapper) and maps the response to
+  `{loanId: renewalStatus}`. The handler raises `HomeAssistantError` when nothing
+  renewed, and on success asks the entry's coordinator (`library.coordinator`,
+  set in `sensor.async_setup_entry`) for a refresh — it does **not** reload the
+  entry, which would rebuild the `Library` and drop the last-good results kept
+  for API outages. `renew_id` on the loan sensor attributes is the API `loanId`.
+- **`diagnostics.py` redacts `CONF_USER_ID`, `CONF_PINCODE`, `CONF_NAME` and the
+  patron `name` key** via `async_redact_data`; keep any new credential or
+  identity keys in its `TO_REDACT` set.
 - **`libraryMaterial.url` and `libraryDebt.feeType` are populated** from the
   API payloads (`ownerWork.workId` → bibliotek.dk work URL; eReolen ISBN →
   bibliotek.dk search; `debt["type"]` → fee type). Keep these in sync if the DBC

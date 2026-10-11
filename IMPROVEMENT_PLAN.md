@@ -4,9 +4,11 @@ Findings from a read-through of the whole repo (v0.6.1). Ordered so the
 highest-impact, lowest-risk work lands first. Each item names the file(s) and a
 concrete change.
 
-> **Status:** Sections 1–4 are done, plus the Section 5 items noted below (see
-> `CHANGELOG.md` 0.6.2 / 0.7.0). The URL / fee-type field names were confirmed
-> against the live DBC APIs and the library frontend's own `dpl-react` bundle.
+> **Status:** Sections 1–4 and 6 are done, plus the Section 5 items noted below
+> (see `CHANGELOG.md` 0.6.2 / 0.7.0 / 0.8.0). The URL / fee-type field names and
+> the renew endpoint were confirmed against the live DBC APIs and the library
+> frontend's own `dpl-react` bundle. The only remaining Section 5 item is the
+> remote branch cleanup (a remote operation, deliberately not done here).
 
 ---
 
@@ -132,13 +134,14 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
   (0.7.0): formatting applied across the codebase and `ruff format --check` added
   to `python-testing.yml`.
 - **No `hacs.json` `version`** — fine (HACS reads `manifest.json`), but confirm the
-  `homeassistant` min version if you adopt newer HA APIs. — Still open.
+  `homeassistant` min version if you adopt newer HA APIs. — DONE (0.8.0):
+  `hacs.json` declares `"homeassistant": "2024.1.0"`.
 - **README** is decent but the "still in development" note and the sensor list
   predate eReolen/debts options. Refresh it and document the `show_*` options.
   — DONE (0.7.0).
 - **CHANGELOG** uses a hand-maintained `<details>` collapse; consider
   auto-generating from tags (the repo already tags releases: `v0.6.1`, …).
-  — Still open.
+  — Decided against (0.8.0): kept hand-maintained.
 - **`.gitignore`** still contains unrelated template entries (`renoweb.code-workspace`,
   `affalddk.code-workspace`). Trim. — DONE (0.7.0).
 - **Branch cleanup:** remote branches `cleanup`, `new_API`, `no_ereol` look merged;
@@ -151,13 +154,16 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 - Config option for the **update interval already exists** — surface it in the
   options flow with the current value (partially done via suggested values).
 - **Renew a loan** as an HA service (the API exposes `renewId`/`renewAble` but
-  nothing uses them).
+  nothing uses them). — DONE (0.8.0): `bibliotek_dk.renew_loans` service.
 - **Debts as a proper currency sensor** with `device_class: monetary` and
-  `state_class`, instead of a raw float state.
+  `state_class`, instead of a raw float state. — DONE (0.8.0).
 - **Diagnostics** support (`async_get_config_entry_diagnostics`) with secrets
-  redacted — helps users file useful bug reports.
+  redacted — helps users file useful bug reports. — DONE (0.8.0).
 - **eReolen reservation expiry** parsing in `fetchReservations` drops `ignoretz`
   (`library_api.py:337-338`) unlike the physical path — normalize timezone handling.
+  — DONE (0.7.0).
+- **Group sensors under an HA device** (one device per config entry) so they are
+  not loose entities. — DONE (0.8.0).
 
 ---
 

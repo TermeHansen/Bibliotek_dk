@@ -25,5 +25,21 @@
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     }
+  },
+  "services": {
+    "renew_loans": {
+      "name": "Renew loans",
+      "description": "Renew one or more physical loans for a library account.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "The Bibliotek configuration entry the loans belong to."
+        },
+        "loan_ids": {
+          "name": "Loan ids",
+          "description": "The loan ids to renew (the renew_id attribute on the loans sensor)."
+        }
+      }
+    }
   }
 }

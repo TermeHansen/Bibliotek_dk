@@ -1,5 +1,32 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.8.0
+
+**Date**: `2026-10-11`
+
+### Changes
+
+* New service `bibliotek_dk.renew_loans` to renew one or more physical loans.
+  Pass the `config_entry_id` and the `loan_ids` (the `renew_id` attribute on the
+  loans sensor); it returns the per-loan renewal status (usable from an
+  automation's `response_variable`). Invalid loan ids are rejected with a clear
+  error, and a successful renewal refreshes the sensors in place.
+* All sensors for an account are now grouped under a single Home Assistant
+  device (one device per config entry), instead of floating loose entities.
+* The debts sensor is now a proper monetary sensor: `device_class: monetary`,
+  `unit_of_measurement: DKK` and `state_class: total`, so it can be graphed and
+  formatted as currency.
+* Added diagnostics support (Settings → Devices & Services → the integration →
+  Download diagnostics). The account snapshot is included with the CPR/library
+  number, PIN and account/patron names redacted.
+* The loans sensor now exposes a `renew_id` attribute per loan, used by the
+  renew service.
+* `hacs.json` now declares a minimum Home Assistant version.
+* Removed dead code: the unused `library_token` property on the transport and
+  the facade.
+* Internal: the DBC open-platform endpoint URLs moved into `const.py` as named
+  constants.
+
 ## Version 0.7.0
 
 **Date**: `2026-10-10`

@@ -133,11 +133,14 @@ class _FakeSession:
     def __init__(self, post=None, get=None):
         self._post = post
         self._get = get
+        self.last_kwargs = None
 
     def post(self, url, **kwargs):
+        self.last_kwargs = kwargs
         return self._post
 
     def get(self, url, **kwargs):
+        self.last_kwargs = kwargs
         return self._get
 
     def close(self):
@@ -445,6 +448,28 @@ def test_all_log_records_format_without_error(caplog):
     for record in caplog.records:
         record.getMessage()
     assert any("Updating" in r.getMessage() for r in caplog.records)
+
+
+def test_renew_loans_posts_ids_and_maps_status():
+    response = [
+        {"loanDetails": {"loanId": 1}, "renewalStatus": ["renewed"]},
+        {"loanDetails": {"loanId": 2}, "renewalStatus": ["deniedReserved"]},
+        {"loanDetails": {"loanId": 3}, "renewalStatus": []},
+    ]
+    session = _FakeSession(post=_FakeResponse(payload=response))
+    lib = _ready_library(session)
+
+    status = lib.renewLoans(["1", "2", "3"])
+
+    # The endpoint takes a bare JSON array of ids, not a wrapper object.
+    assert session.last_kwargs["json"] == [1, 2, 3]
+    assert status == {1: "renewed", 2: "deniedReserved", 3: None}
+
+
+def test_renew_loans_returns_empty_on_error():
+    session = _FakeSession(post=_FakeResponse(status_code=400))
+    lib = _ready_library(session)
+    assert lib.renewLoans(["1"]) == {}
 
 
 def test_public_constants_are_reexported():

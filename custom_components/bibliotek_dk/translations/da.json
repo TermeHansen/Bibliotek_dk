@@ -38,5 +38,21 @@
         }
       }
     }
+  },
+  "services": {
+    "renew_loans": {
+      "name": "Forny lån",
+      "description": "Forny et eller flere fysiske lån for en bibliotekskonto.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Den Bibliotek-konfigurationspost som lånene tilhører."
+        },
+        "loan_ids": {
+          "name": "Lån-id'er",
+          "description": "De lån-id'er der skal fornyes (renew_id-attributten på lån-sensoren)."
+        }
+      }
+    }
   }
 }

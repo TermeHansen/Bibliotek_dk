@@ -1,22 +1,56 @@
+# Drop-in Lovelace card: one row per loan, across every Bibliotek account.
+#
+# Nothing to edit: the Bibliotek sensors are discovered automatically from their
+# attributes, so the correct sensor is always used (works with any number of
+# accounts and survives renames of the entities).
+#
+# Requirements (HACS frontend):
+#   - auto-entities
+#   - template-entity-row
+#   - browser_mod  (optional - only for the cover popup on tap; remove the
+#     tap_action block below if you do not use it)
 type: custom:auto-entities
 card:
   type: entities
-  title: John Does Lån
+  title: Bibliotekslån
 filter:
   template: |-
-    {% set SENSOR = 'sensor.bibliotekslan_john_doe' -%}
-    {%- for book in states[SENSOR].attributes.loans -%}
-    {%- set DUEDATE = as_datetime(book.expire_date) -%}
-    {%- set authors = book.creators -%}
-      {{
-            {
+    {% set sensors = states.sensor
+         | selectattr('attributes.loans', 'defined')
+         | rejectattr('attributes.address', 'defined')
+         | selectattr('state', 'ne', '0')
+         | map(attribute='entity_id')
+         | list %}
+    {% set ns = namespace(items=[]) %}
+    {%- for SENSOR in sensors -%}
+      {%- for book in states[SENSOR].attributes.loans -%}
+        {%- set DUEDATE = as_datetime(book.expire_date) -%}
+        {%- set authors = book.creators if book.creators else '' -%}
+        {%- set kind = '(' ~ book.type ~ ')' if book.type else '' -%}
+        {%- set ns.items = ns.items + [{
               'type': 'custom:template-entity-row',
               'entity': SENSOR,
-              'state': time_until(DUEDATE),
               'name': book.title,
-              'secondary': (authors if authors else "") + " (" + book.type + ")",
+              'state': time_until(DUEDATE),
+              'secondary': (authors ~ ' ' ~ kind) | trim,
               'icon': 'mdi:book-open-page-variant',
               'image': book.cover,
-            }
-      }},
-    {%- endfor %}
+              'tap_action': {
+                'action': 'fire-dom-event',
+                'browser_mod': {
+                  'service': 'browser_mod.popup',
+                  'data': {
+                    'title': book.title,
+                    'content': {
+                      'type': 'picture',
+                      'image': book.cover,
+                      'tap_action': {'action': 'none'}
+                    },
+                    'size': 'small'
+                  }
+                }
+              }
+            }] -%}
+      {%- endfor -%}
+    {%- endfor -%}
+    {{ ns.items }}

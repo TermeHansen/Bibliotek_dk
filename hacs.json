@@ -1,5 +1,6 @@
 {
   "name": "Bibliotek DK",
   "country": ["DK"],
+  "homeassistant": "2024.1.0",
   "render_readme": true
 }
