@@ -37,6 +37,9 @@
   material-details lookup failed: the item and its dates are now kept (the
   details API only adds title/cover/url), so a transient details error no longer
   hides an outstanding item.
+* A failed loans/reservations/debts request now keeps the previously fetched
+  items instead of replacing them with an empty list, so an API outage no longer
+  shows zero loans/fees as real data.
 * A failed daily profile refresh now retries on the next poll instead of
   suppressing further attempts for a day.
 * Retries no longer raise `RetryError` once the status retries are exhausted;

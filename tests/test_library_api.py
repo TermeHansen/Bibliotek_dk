@@ -11,6 +11,7 @@ import datetime as dt
 from custom_components.bibliotek_dk import library_api
 from custom_components.bibliotek_dk.library_api import (
     Library,
+    libraryDebt,
     libraryLoan,
     libraryReservation,
     libraryReservationReady,
@@ -285,6 +286,66 @@ def test_fetch_reservations_keeps_reservation_when_details_fail():
 
     assert len(lib.user.reservations) == 1
     assert lib.user.reservations[0].queueNumber == 3
+
+
+def test_sort_lists_handles_missing_titles():
+    # Regression: a loan/reservation kept without details has title None; a
+    # shared sort date must not mix None with str (TypeError aborts the refresh).
+    lib = Library("1234", "0000", "https://example.invalid", "710100")
+    due = dt.datetime(2026, 1, 1)
+    titled = libraryLoan(_manifestation())
+    titled.title = "A"
+    titled.expireDate = due
+    untitled = libraryLoan(_manifestation())
+    untitled.title = None
+    untitled.expireDate = due
+
+    lib.user.loans = [titled, untitled]
+    lib.user.reservations = []
+    lib.user.reservationsReady = []
+    lib.sortLists()
+
+    # No TypeError; both kept, the None title treated as "" sorts first.
+    assert [loan.title for loan in lib.user.loans] == [None, "A"]
+
+
+def test_fetch_loans_keeps_previous_state_on_api_error():
+    # Regression: with raise_on_status=False a 5xx reaches the warning branch;
+    # the list must not be replaced with empty data.
+    lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
+    lib.use_eReolen = False
+    existing = libraryLoan(_manifestation())
+    existing.title = "Existing"
+    lib.user.loans = [existing]
+
+    lib.fetchLoans()
+
+    assert lib.user.loans == [existing]
+
+
+def test_fetch_reservations_keeps_previous_state_on_api_error():
+    lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
+    lib.use_eReolen = False
+    existing = libraryReservation(_manifestation())
+    existing.title = "Existing"
+    lib.user.reservations = [existing]
+
+    lib.fetchReservations()
+
+    assert lib.user.reservations == [existing]
+
+
+def test_fetch_debts_keeps_previous_state_on_api_error():
+    lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
+    existing = libraryDebt(_manifestation())
+    existing.feeAmount = "10.00"
+    lib.user.debts = [existing]
+    lib.user.debtsAmount = 10.0
+
+    lib.fetchDebts()
+
+    assert lib.user.debts == [existing]
+    assert lib.user.debtsAmount == 10.0
 
 
 def test_all_log_records_format_without_error(caplog):

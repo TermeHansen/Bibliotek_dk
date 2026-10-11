@@ -152,9 +152,12 @@ class Library:
 
     # PRIVATE BEGIN ####
     def sortLists(self):
+        # A loan/reservation kept without details has title None; fall back to
+        # "" so a sort key never mixes None with str (which would raise
+        # TypeError and abort the whole refresh).
         # Sort the loans by expireDate and the Title
         self.user.loans.sort(
-            key=lambda obj: (obj.expireDate is None, obj.expireDate, obj.title)
+            key=lambda obj: (obj.expireDate is None, obj.expireDate, obj.title or "")
         )
         # Sort the reservations
         self.user.reservations.sort(
@@ -163,12 +166,12 @@ class Library:
                 obj.queueNumber,
                 obj.createdDate is None,
                 obj.createdDate,
-                obj.title,
+                obj.title or "",
             )
         )
         # Sort the reservations
         self.user.reservationsReady.sort(
-            key=lambda obj: (obj.pickupDate is None, obj.pickupDate, obj.title)
+            key=lambda obj: (obj.pickupDate is None, obj.pickupDate, obj.title or "")
         )
 
     def _branchName(self, id):
@@ -275,7 +278,8 @@ class Library:
             "https://fbs-openplatform.dbc.dk/external/agencyid/patrons/patronid/loans/v2",
             headers=self.json_header,
         )
-        if res.status_code == 200:
+        physical_ok = res.status_code == 200
+        if physical_ok:
             for material in res.json():
                 id = material["loanDetails"]["recordId"]
                 # A failed details lookup returns {}; keep the loan anyway (the
@@ -307,7 +311,8 @@ class Library:
                 "https://pubhub-openplatform.dbc.dk/v1/user/loans",
                 headers=self.json_header,
             )
-            if res.status_code == 200:
+            ereolen_ok = res.status_code == 200
+            if ereolen_ok:
                 edata = res.json()
 
                 self.user.eBooks = edata["userData"]["totalEbookLoans"]
@@ -351,9 +356,14 @@ class Library:
             self.user.eBooksQuota = 0
             self.user.audioBooks = 0
             self.user.audioBooksQuota = 0
+            ereolen_ok = True
 
-        self.user.loans = loans
-        self.user.loansOverdue = loansOverdue
+        # Publish the new lists only when every source answered; on a failed
+        # request keep the previous state so an API outage does not show zero
+        # loans as real data.
+        if physical_ok and ereolen_ok:
+            self.user.loans = loans
+            self.user.loansOverdue = loansOverdue
 
     # Get the current reservations
     def fetchReservations(self):
@@ -365,7 +375,8 @@ class Library:
             "https://fbs-openplatform.dbc.dk/external/v1/agencyid/patrons/patronid/reservations/v2",
             headers=self.json_header,
         )
-        if res.status_code == 200:
+        physical_ok = res.status_code == 200
+        if physical_ok:
             materials = {
                 item["transactionId"]: item for item in res.json()
             }  # make sure only to take last if more than one item with same transaction
@@ -407,7 +418,8 @@ class Library:
                 "https://pubhub-openplatform.dbc.dk/v1/user/reservations",
                 headers=self.json_header,
             )
-            if res.status_code == 200:
+            ereolen_ok = res.status_code == 200
+            if ereolen_ok:
                 edata = res.json()
                 for material in edata["reservations"]:
                     id = material["identifier"]
@@ -439,8 +451,13 @@ class Library:
                 _LOGGER.warning(
                     f"({self.user.date}) Error fetching eReolen reservations ({res.status_code})"
                 )
-        self.user.reservations = reservations
-        self.user.reservationsReady = reservationsReady
+        else:
+            ereolen_ok = True
+        # Publish only when both sources answered; otherwise keep the previous
+        # state (see fetchLoans).
+        if physical_ok and ereolen_ok:
+            self.user.reservations = reservations
+            self.user.reservationsReady = reservationsReady
 
     # Get debts, if any, from the Library
     def fetchDebts(self):
@@ -470,5 +487,7 @@ class Library:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching debts ({res.status_code})"
             )
+            # Keep the previous debts so an outage does not show zero fees.
+            return
         self.user.debts = debts
         self.user.debtsAmount = sum([float(obj.feeAmount) for obj in debts])
