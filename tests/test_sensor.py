@@ -59,6 +59,7 @@ class FakeSetupCoordinator:
 class FakeEntry:
     def __init__(self, data):
         self.entry_id = "entry1"
+        self.title = "Test Library"
         self.data = data
         self.options = {}
 
@@ -156,6 +157,28 @@ def test_debt_sensor_sums_amounts():
     assert sensor.extra_state_attributes["debts"][0]["fee_type"] == "overdue"
 
 
+def test_debt_sensor_is_monetary():
+    from decimal import Decimal
+
+    lib = _library()
+    lib.user.debts = []
+    lib.user.debtsAmount = 12.5
+    sensor = DebtSensor(lib.user, FakeCoordinator())
+    assert sensor._attr_device_class == "monetary"
+    assert sensor._attr_native_unit_of_measurement == "DKK"
+    assert sensor._attr_state_class == "total"
+    assert sensor.native_value == Decimal("12.5")
+
+
+def test_loan_sensor_exposes_renew_id():
+    lib = _library()
+    loan = _loan("A", dt.datetime(2026, 1, 1))
+    loan.renewId = 42
+    lib.user.loans = [loan]
+    sensor = LoanSensor(lib.user, FakeCoordinator())
+    assert sensor.extra_state_attributes["loans"][0]["renew_id"] == 42
+
+
 def test_reservation_sensor_state():
     lib = _library()
     res = libraryReservation.__new__(libraryReservation)
@@ -211,6 +234,17 @@ async def test_setup_creates_all_sensors_when_enabled(monkeypatch):
         "ReservationSensor",
         "ReservationReadySensor",
     }
+
+
+@pytest.mark.asyncio
+async def test_setup_groups_sensors_under_one_device(monkeypatch):
+    entities = await _setup(monkeypatch)
+    infos = [e._attr_device_info for e in entities]
+    assert all(info is not None for info in infos)
+    # One device per config entry: identical identifiers on every sensor.
+    assert len({tuple(info["identifiers"]) for info in infos}) == 1
+    assert ("bibliotek_dk", "entry1") in infos[0]["identifiers"]
+    assert infos[0]["name"] == "Test Library"
 
 
 @pytest.mark.asyncio

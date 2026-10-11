@@ -13,7 +13,17 @@ from datetime import timedelta, datetime
 import logging
 import re
 
-from .const import branch_query, details_query
+from .const import (
+    URL_BRANCH_GRAPHQL,
+    URL_FEES,
+    URL_LOANS,
+    URL_LOANS_RENEW,
+    URL_PATRON,
+    URL_PUBHUB_BASE,
+    URL_RESERVATIONS,
+    branch_query,
+    details_query,
+)
 from .models import (
     libraryDebt,
     libraryLoan,
@@ -148,10 +158,6 @@ class Library:
     def user_token(self):
         return self._transport.user_token
 
-    @property
-    def library_token(self):
-        return self._transport.library_token
-
     def login(self):
         return self._transport.login()
 
@@ -192,9 +198,7 @@ class Library:
             "variables": {"language": "DA", "limit": 50, "q": id},
         }
         header = {"Accept": "*/*"}
-        res = self._post(
-            "https://bibliotek.dk/api/bibdk21/graphql", headers=header, json=params
-        )
+        res = self._post(URL_BRANCH_GRAPHQL, headers=header, json=params)
         if res.status_code == 200:
             data = res.json()["data"]["branches"]
             for branch in data["result"]:
@@ -249,10 +253,7 @@ class Library:
     # Get information on the user. Returns True when the profile was updated.
     def fetchUserInfo(self):
         # Fetch the user profile page
-        res = self._get(
-            "https://fbs-openplatform.dbc.dk/external/agencyid/patrons/patronid/v4",
-            headers=self.json_header,
-        )
+        res = self._get(URL_PATRON, headers=self.json_header)
         if res.status_code == 200:
             try:
                 data = res.json()["patron"]
@@ -279,10 +280,7 @@ class Library:
     # Get the loans with all possible details
     def fetchLoans(self):
         # Physical books
-        res = self._get(
-            "https://fbs-openplatform.dbc.dk/external/agencyid/patrons/patronid/loans/v2",
-            headers=self.json_header,
-        )
+        res = self._get(URL_LOANS, headers=self.json_header)
         if res.status_code == 200:
             physical = []
             physical_overdue = []
@@ -315,10 +313,7 @@ class Library:
             )
         # Ebooks
         if self.use_eReolen:
-            res = self._get(
-                "https://pubhub-openplatform.dbc.dk/v1/user/loans",
-                headers=self.json_header,
-            )
+            res = self._get(f"{URL_PUBHUB_BASE}/user/loans", headers=self.json_header)
             if res.status_code == 200:
                 edata = res.json()
 
@@ -335,8 +330,7 @@ class Library:
                 for material in edata["loans"]:
                     id = material["libraryBook"]["identifier"]
                     res2 = self._get(
-                        f"https://pubhub-openplatform.dbc.dk/v1/products/{id}",
-                        headers=self.json_header,
+                        f"{URL_PUBHUB_BASE}/products/{id}", headers=self.json_header
                     )
                     if res2.status_code == 200:
                         data = res2.json()["product"]
@@ -376,13 +370,41 @@ class Library:
             self._loans_overdue["physical"] + self._loans_overdue["ereolen"]
         )
 
+    # Renew one or more physical loans. ``loan_ids`` are the API's ``loanId``
+    # values, exposed to users as ``renew_id`` on the loan sensor attributes.
+    # Returns a dict mapping each requested id to its renewal status: "renewed"
+    # on success, otherwise the API's denial reason (e.g. "deniedReserved").
+    def renewLoans(self, loan_ids):
+        # The endpoint expects a bare JSON array of loan ids, e.g. ``[123]``.
+        res = self._post(
+            URL_LOANS_RENEW,
+            headers=self.json_header,
+            json=[int(loan_id) for loan_id in loan_ids],
+        )
+        if res.status_code != 200:
+            # Errors come back as {"errorCode": ..., "message": ...}, but a
+            # gateway error may return a non-JSON body instead.
+            try:
+                body = res.json()
+            except ValueError:
+                body = None
+            detail = body.get("errorCode") if isinstance(body, dict) else None
+            _LOGGER.warning(
+                f"({self.user.date}) Error renewing loans ({res.status_code}"
+                f"{f', {detail}' if detail else ''})"
+            )
+            return {}
+        status = {}
+        for item in res.json():
+            loan_id = (item.get("loanDetails") or {}).get("loanId")
+            renewal = item.get("renewalStatus") or []
+            status[loan_id] = renewal[0] if renewal else None
+        return status
+
     # Get the current reservations
     def fetchReservations(self):
         # Physical books
-        res = self._get(
-            "https://fbs-openplatform.dbc.dk/external/v1/agencyid/patrons/patronid/reservations/v2",
-            headers=self.json_header,
-        )
+        res = self._get(URL_RESERVATIONS, headers=self.json_header)
         if res.status_code == 200:
             materials = {
                 item["transactionId"]: item for item in res.json()
@@ -426,8 +448,7 @@ class Library:
         # eReolen
         if self.use_eReolen:
             res = self._get(
-                "https://pubhub-openplatform.dbc.dk/v1/user/reservations",
-                headers=self.json_header,
+                f"{URL_PUBHUB_BASE}/user/reservations", headers=self.json_header
             )
             if res.status_code == 200:
                 edata = res.json()
@@ -435,8 +456,7 @@ class Library:
                 for material in edata["reservations"]:
                     id = material["identifier"]
                     res2 = self._get(
-                        f"https://pubhub-openplatform.dbc.dk/v1/products/{id}",
-                        headers=self.json_header,
+                        f"{URL_PUBHUB_BASE}/products/{id}", headers=self.json_header
                     )
                     if res2.status_code == 200:
                         data = res2.json()["product"]
@@ -479,11 +499,7 @@ class Library:
     def fetchDebts(self):
         debts = []
         params = {"includepaid": "false", "includenonpayable": "true"}
-        res = self._get(
-            "https://fbs-openplatform.dbc.dk/external/agencyid/patron/patronid/fees/v2",
-            params=params,
-            headers=self.json_header,
-        )
+        res = self._get(URL_FEES, params=params, headers=self.json_header)
         if res.status_code == 200:
             js = res.json()
             for debt in js:
