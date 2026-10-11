@@ -4,7 +4,7 @@
       "already_configured": "Device is already configured"
     },
     "error": {
-      "gatewayf": "Your municipality uses WAYF (https://wayf.dk/) as login, which is not support bu this integration",
+      "gatewayf": "Your municipality uses WAYF as login, which is not supported by this integration",
       "user_exist": "User exist",
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",

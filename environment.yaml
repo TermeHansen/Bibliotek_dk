@@ -1,6 +1,7 @@
 name: bibliotek_dk
 channels:
   - defaults
+  - conda-forge
 dependencies:
   - python=3.12
   - aiohttp
@@ -11,3 +12,6 @@ dependencies:
   - python-dateutil
   - requests
   - ruff
+  # config_flow imports voluptuous (HA bundles it at runtime); it only ships on
+  # conda-forge, so the channel above is required for the tests to collect.
+  - voluptuous

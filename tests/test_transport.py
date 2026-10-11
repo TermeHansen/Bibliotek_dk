@@ -53,6 +53,9 @@ def test_session_is_configured_with_timeout_and_retries():
     adapter = transport.session.get_adapter("https://example.invalid")
     assert adapter.max_retries.total == 3
     assert 500 in adapter.max_retries.status_forcelist
+    # Exhausted status retries must return the response, not raise RetryError,
+    # so callers' status-code checks still run.
+    assert adapter.max_retries.raise_on_status is False
     # The helpers apply a default timeout when the caller does not pass one.
     assert REQUEST_TIMEOUT == (10, 30)
 

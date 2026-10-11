@@ -93,8 +93,11 @@ def test_branch_name_splits_id_and_uses_cache():
     lib.branches = {"123": "Some Branch"}
     # The id is split on '-' and the last part is looked up in the cache.
     assert lib._branchName("a-b-123") == "Some Branch"
-    # Unknown id falls back to the id itself.
-    assert lib._branchName("a-b-999") == "999"
+    # A cache miss fetches the branch list; stub the session so no network is hit.
+    payload = {"data": {"branches": {"result": [{"branchId": "999", "name": "New"}]}}}
+    lib.session = _FakeSession(post=_FakeResponse(payload=payload))
+    assert lib._branchName("a-b-999") == "New"
+    assert lib.branches["999"] == "New"
 
 
 def test_use_ereolen_defaults_true_and_is_settable():
@@ -197,6 +200,7 @@ def test_update_refreshes_profile_at_most_daily():
     def fake_fetch():
         calls["n"] += 1
         lib.user.name = "Test User"
+        return True
 
     lib.fetchUserInfo = fake_fetch
     lib.get_loans = lib.get_reservations = lib.get_depts = False
@@ -211,6 +215,78 @@ def test_update_refreshes_profile_at_most_daily():
     assert calls["n"] == 2
 
 
+def test_update_retries_profile_after_failed_fetch():
+    # Regression: a failed refresh advanced the timestamp via the stale name,
+    # so a transient error (e.g. HTTP 429) blocked retries for a day.
+    lib = _ready_library(_FakeSession())
+    lib._branchName = lambda _id: "Branch"
+    calls = {"n": 0}
+
+    def failing_fetch():
+        calls["n"] += 1
+        return False
+
+    lib.fetchUserInfo = failing_fetch
+    lib.get_loans = lib.get_reservations = lib.get_depts = False
+
+    lib.update()
+    lib.update()
+    assert calls["n"] == 2
+    assert lib._user_info_fetched is None
+
+
+def test_fetch_loans_keeps_loan_when_details_fail():
+    # Regression: a failed details lookup dropped an outstanding loan entirely.
+    loans = [
+        {
+            "loanDetails": {
+                "recordId": "faust-1",
+                "loanId": "loan-1",
+                "loanDate": "2026-01-01",
+                "dueDate": "2030-01-01",
+                "materialItemNumber": "item-1",
+            },
+            "isRenewable": True,
+        }
+    ]
+    session = _FakeSession(
+        get=_FakeResponse(payload=loans), post=_FakeResponse(status_code=500)
+    )
+    lib = _ready_library(session)
+    lib.use_eReolen = False
+
+    lib.fetchLoans()
+
+    assert len(lib.user.loans) == 1
+    assert lib.user.loans[0].expireDate is not None
+    assert lib.user.loans[0].renewAble is True
+
+
+def test_fetch_reservations_keeps_reservation_when_details_fail():
+    reservations = [
+        {
+            "transactionId": "t1",
+            "recordId": "faust-1",
+            "state": "reserved",
+            "dateOfReservation": "2026-01-01",
+            "pickupBranch": "branch-1",
+            "expiryDate": "2030-02-01",
+            "numberInQueue": 3,
+        }
+    ]
+    session = _FakeSession(
+        get=_FakeResponse(payload=reservations), post=_FakeResponse(status_code=500)
+    )
+    lib = _ready_library(session)
+    lib.use_eReolen = False
+    lib._branchName = lambda _id: "Branch"
+
+    lib.fetchReservations()
+
+    assert len(lib.user.reservations) == 1
+    assert lib.user.reservations[0].queueNumber == 3
+
+
 def test_all_log_records_format_without_error(caplog):
     # Regression: update()'s debug message had 3 placeholders but 4 args, which
     # made the logging handler raise "not all arguments converted".
@@ -218,7 +294,12 @@ def test_all_log_records_format_without_error(caplog):
 
     lib = _ready_library(_FakeSession())
     lib._branchName = lambda _id: "Branch"
-    lib.fetchUserInfo = lambda: setattr(lib.user, "name", "Test User")
+
+    def fake_fetch():
+        lib.user.name = "Test User"
+        return True
+
+    lib.fetchUserInfo = fake_fetch
     lib.fetchLoans = lib.fetchReservations = lib.fetchDebts = lambda: None
 
     with caplog.at_level(logging.DEBUG, logger="custom_components.bibliotek_dk"):

@@ -36,3 +36,4 @@ jobs:
       shell: bash -l {0}
       run: |
         TZ=Europe/Copenhagen pytest tests --disable-warnings
+        TZ=UTC pytest tests --disable-warnings

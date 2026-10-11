@@ -33,6 +33,18 @@
   the municipality lookup) came back as undecodable bytes.
 * Fixed a logging crash ("not all arguments converted during string formatting")
   in the update debug message.
+* Fixed a loan or reservation disappearing from the sensors when the optional
+  material-details lookup failed: the item and its dates are now kept (the
+  details API only adds title/cover/url), so a transient details error no longer
+  hides an outstanding item.
+* A failed daily profile refresh now retries on the next poll instead of
+  suppressing further attempts for a day.
+* Retries no longer raise `RetryError` once the status retries are exhausted;
+  the final response is returned so the normal status handling (warning +
+  keeping the previous state) applies. A single failing API no longer aborts the
+  whole update and blanks every sensor.
+* CI: added the missing `voluptuous` dependency (config_flow import) and run the
+  tests under both `Europe/Copenhagen` and `UTC`.
 * Internal cleanup (no user-visible behavior change):
   - the `Library` god-object is split up: HTTP/login/token handling now lives in
     `transport.py` (`LibraryTransport`), the data holders in `models.py`, and

@@ -92,8 +92,9 @@ class Library:
         if first or stale:
             if first:
                 self._branchName(self.agency)
-            self.fetchUserInfo()
-            if self.user.name:
+            # Only advance the timestamp on success, so a failed refresh (e.g.
+            # HTTP 429) is retried on the next poll instead of a day later.
+            if self.fetchUserInfo():
                 self._user_info_fetched = now
 
         # Fetch the states of the user
@@ -234,7 +235,7 @@ class Library:
 
     # PRIVATE END  ####
 
-    # Get information on the user
+    # Get information on the user. Returns True when the profile was updated.
     def fetchUserInfo(self):
         # Fetch the user profile page
         res = self._get(
@@ -255,12 +256,14 @@ class Library:
                     data["preferredPickupBranch"]
                 )
                 self.libraryName = self._branchName(data["preferredPickupBranch"])
+                return True
             except (AttributeError, KeyError) as err:
                 _LOGGER.error(f"Error getting user info {self.user.date}. Error: {err}")
         else:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching user info ({res.status_code})"
             )
+        return False
 
     # Get the loans with all possible details
     def fetchLoans(self):
@@ -275,25 +278,25 @@ class Library:
         if res.status_code == 200:
             for material in res.json():
                 id = material["loanDetails"]["recordId"]
-                data = self._getDetails(id)
-                if data:
-                    # Create an instance of libraryLoan
-                    obj = libraryLoan(data)
+                # A failed details lookup returns {}; keep the loan anyway (the
+                # dates below come from the loans API) so a transient details
+                # error does not hide an outstanding loan.
+                obj = libraryLoan(self._getDetails(id))
 
-                    # Renewable
-                    obj.renewId = material["loanDetails"]["loanId"]
-                    obj.renewAble = material["isRenewable"]
-                    obj.loanDate = parser.parse(
-                        material["loanDetails"]["loanDate"], ignoretz=True
-                    )
-                    obj.expireDate = parser.parse(
-                        material["loanDetails"]["dueDate"], ignoretz=True
-                    ) + timedelta(hours=23, minutes=59)
-                    obj.id = material["loanDetails"]["materialItemNumber"]
-                    if obj.expireDate < datetime.now():
-                        loansOverdue.append(obj)
-                    else:
-                        loans.append(obj)
+                # Renewable
+                obj.renewId = material["loanDetails"]["loanId"]
+                obj.renewAble = material["isRenewable"]
+                obj.loanDate = parser.parse(
+                    material["loanDetails"]["loanDate"], ignoretz=True
+                )
+                obj.expireDate = parser.parse(
+                    material["loanDetails"]["dueDate"], ignoretz=True
+                ) + timedelta(hours=23, minutes=59)
+                obj.id = material["loanDetails"]["materialItemNumber"]
+                if obj.expireDate < datetime.now():
+                    loansOverdue.append(obj)
+                else:
+                    loans.append(obj)
         else:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching loans ({res.status_code})"
@@ -368,31 +371,31 @@ class Library:
             }  # make sure only to take last if more than one item with same transaction
             for material in materials.values():
                 id = material["recordId"]
+                # A failed details lookup returns {}; keep the reservation anyway
+                # (its dates and queue number come from the reservations API) so
+                # a transient details error does not hide an outstanding item.
                 data = self._getDetails(id)
-                if data:
-                    if material["state"] == "readyForPickup":
-                        obj = libraryReservationReady(data)
-                    else:
-                        obj = libraryReservation(data)
+                if material["state"] == "readyForPickup":
+                    obj = libraryReservationReady(data)
+                else:
+                    obj = libraryReservation(data)
 
-                    # Details
-                    obj.id = id
-                    obj.createdDate = parser.parse(
-                        material["dateOfReservation"], ignoretz=True
+                # Details
+                obj.id = id
+                obj.createdDate = parser.parse(
+                    material["dateOfReservation"], ignoretz=True
+                )
+                obj.pickupLibrary = self._branchName(material["pickupBranch"])
+                if material["state"] == "readyForPickup":
+                    obj.reservationNumber = material["pickupNumber"]
+                    obj.pickupDate = parser.parse(
+                        material["pickupDeadline"], ignoretz=True
                     )
-                    obj.pickupLibrary = self._branchName(material["pickupBranch"])
-                    if material["state"] == "readyForPickup":
-                        obj.reservationNumber = material["pickupNumber"]
-                        obj.pickupDate = parser.parse(
-                            material["pickupDeadline"], ignoretz=True
-                        )
-                        reservationsReady.append(obj)
-                    else:
-                        obj.expireDate = parser.parse(
-                            material["expiryDate"], ignoretz=True
-                        )
-                        obj.queueNumber = material["numberInQueue"]
-                        reservations.append(obj)
+                    reservationsReady.append(obj)
+                else:
+                    obj.expireDate = parser.parse(material["expiryDate"], ignoretz=True)
+                    obj.queueNumber = material["numberInQueue"]
+                    reservations.append(obj)
         else:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching reservations ({res.status_code})"

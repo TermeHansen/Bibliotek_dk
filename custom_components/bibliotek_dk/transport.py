@@ -51,6 +51,11 @@ class LibraryTransport:
             backoff_factor=0.5,
             status_forcelist=(500, 502, 503, 504),
             allowed_methods=frozenset(["GET", "POST"]),
+            # Return the final response instead of raising RetryError once the
+            # status retries are exhausted, so the callers' status-code checks
+            # and warnings still run (a single failing API must not abort the
+            # whole update and blank every sensor).
+            raise_on_status=False,
         )
         adapter = requests.adapters.HTTPAdapter(max_retries=retry)
         session.mount("https://", adapter)
