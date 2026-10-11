@@ -41,6 +41,22 @@ The integration creates these sensors:
 All sensors support the `show_*` options above; disabled groups are not created.
 All sensors for an account are grouped under a single device in Home Assistant.
 
+### Cards
+`loans_card.yaml` is a drop-in card: one row per loan, across every configured
+account, with the cover, title, author/type and "due in ...". It discovers the
+Bibliotek sensors itself (from their attributes), so there is nothing to edit and
+it keeps working when entities are renamed. Paste it into a dashboard (Add card →
+Manual) or use `dashboard.yaml` as a starting point.
+
+`loans_card_decluttering.yaml` is the same card as a
+[decluttering-card](https://github.com/custom-cards/decluttering-card) template,
+so you can pass a specific `entity` and `title`. (Home Assistant has no card
+blueprints; decluttering-card is the community equivalent.)
+
+Both need the HACS frontend cards `auto-entities` and `template-entity-row`; the
+cover popup on tap additionally needs `browser_mod` (remove the `tap_action`
+block if you do not use it).
+
 ### Renewing loans
 Physical loans can be renewed from an automation or the Developer Tools with the
 `bibliotek_dk.renew_loans` service. It takes the `config_entry_id` and one or

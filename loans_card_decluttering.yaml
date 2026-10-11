@@ -1,0 +1,64 @@
+# Reusable card template - the closest thing Home Assistant has to a "card
+# blueprint". Home Assistant only ships blueprints for automations, scripts and
+# template entities; for cards the community standard is decluttering-card.
+#
+# Requirements (HACS frontend):
+#   - decluttering-card
+#   - auto-entities
+#   - template-entity-row
+#   - browser_mod  (optional - only for the cover popup; drop the tap_action)
+#
+# Install: paste the `decluttering_templates:` block into your raw dashboard
+# config (top level). Then add the card anywhere and pass the sensor:
+#
+#   - type: custom:decluttering-card
+#     template: bibliotek_loans
+#     variables:
+#       - entity: sensor.bibliotekslan_jon_doe
+#       - title: Johns lån
+#
+# The `entity` is the loans sensor for the account you want to show; leave
+# `title` out to use the default.
+
+decluttering_templates:
+  bibliotek_loans:
+    default:
+      - title: Bibliotekslån
+    card:
+      type: custom:auto-entities
+      card:
+        type: entities
+        title: "[[title]]"
+      filter:
+        template: |-
+          {%- for book in state_attr('[[entity]]', 'loans') -%}
+            {%- set DUEDATE = as_datetime(book.expire_date) -%}
+            {%- set authors = book.creators if book.creators else '' -%}
+            {%- set kind = '(' ~ book.type ~ ')' if book.type else '' -%}
+            {{
+              {
+                'type': 'custom:template-entity-row',
+                'entity': '[[entity]]',
+                'name': book.title,
+                'state': time_until(DUEDATE),
+                'secondary': (authors ~ ' ' ~ kind) | trim,
+                'icon': 'mdi:book-open-page-variant',
+                'image': book.cover,
+                'tap_action': {
+                  'action': 'fire-dom-event',
+                  'browser_mod': {
+                    'service': 'browser_mod.popup',
+                    'data': {
+                      'title': book.title,
+                      'content': {
+                        'type': 'picture',
+                        'image': book.cover,
+                        'tap_action': {'action': 'none'}
+                      },
+                      'size': 'small'
+                    }
+                  }
+                }
+              }
+            }},
+          {%- endfor -%}

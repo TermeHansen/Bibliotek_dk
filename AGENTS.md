@@ -31,7 +31,8 @@ custom_components/bibliotek_dk/
 ├── strings.json       # translation source (HA requires this to mirror translations/)
 └── translations/{en,da}.json
 dashboard.yaml         # sample Lovelace dashboard (markdown templates)
-loans_card.yaml        # sample auto-entities card
+loans_card.yaml        # drop-in auto-entities card (self-discovers the sensor)
+loans_card_decluttering.yaml  # reusable decluttering-card template
 tests/                 # pytest suite; conftest.py stubs homeassistant (no HA needed)
 ```
 
