@@ -20,23 +20,30 @@ All the configuration is done in GUI.
 - **Pincode**
 - Show eReolen (e-books and audiobooks), boolean (default true)
 - Show loans, boolean (default true)
+- Show debts (fees), boolean (default true)
 - Show reservations, boolean (default true)
-- Show reservations ready, boolean (default true)
 - Update interval, minutes (default 60)
+
+The show/hide toggles can be changed later from the integration's **Configure**
+(options) dialog. Unticking one stops those sensors from being created.
 
 ## Usage
 With this custom integration for [Home Assistant](https://www.home-assistant.io/) you will probably never be late again on your returns.
-The integrations creates 4 sensors:
+The integration creates these sensors:
 
 - [General Library Sensor](#general-library-sensor)
 - [Loans sensor](#loans-sensor)
+- [Loans Overdue sensor](#loans-overdue-sensor)
+- [Debts sensor](#debts-sensor)
 - [Reservations sensor](#reservations-sensor)
 - [Reservations Ready sensor](#reservations-ready-sensor)
 
+All sensors support the `show_*` options above; disabled groups are not created.
+
 ### General Library Sensor
-In its current state (yes it is still in development), you will get 4 diffent sensors:
-- A general sensor with "days to return" in state and states on :
+A general sensor with "days to return" in state (based on the next loan) and:
   - Loans
+  - Loans overdue
   - Reservations
   - Reservations ready for pickup
   - Debts
@@ -53,6 +60,19 @@ In its current state (yes it is still in development), you will get 4 diffent se
   - Date of loan
   - Date of return
   - Whether the material is renewable
+  - Link to the info on the website (bibliotek.dk work page for physical items,
+    a bibliotek.dk ISBN search for eReolen items)
+  - URL to the bookcover
+### Loans Overdue sensor
+Like the [Loans sensor](#loans-sensor), but only for loans past their return
+date.
+### Debts sensor
+- A "Debts" sensor with the total outstanding amount as state, and per fee:
+  - Title
+  - Type
+  - Date of the fee
+  - Fee type
+  - Fee amount
   - Link to the info on the website
   - URL to the bookcover
 ### Reservations sensor

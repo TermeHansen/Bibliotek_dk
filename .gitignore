@@ -110,6 +110,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Local test credentials (never commit real CPR / PIN / tokens)
+/secret
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -127,7 +130,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
-renoweb.code-workspace
+
+# macOS
 .DS_Store
+
+# Home Assistant runtime config
 /config/*
-affalddk.code-workspace

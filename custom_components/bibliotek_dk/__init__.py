@@ -1,4 +1,5 @@
-"""The Dummy Garage integration."""
+"""The Bibliotek integration."""
+
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
@@ -12,6 +13,7 @@ from .const import (
     CONF_HOST,
     CONF_MUNICIPALITY,
     CONF_PINCODE,
+    CONF_SHOW_ELOANS,
     CONF_USER_ID,
     DOMAIN,
 )
@@ -20,16 +22,17 @@ PLATFORMS = [Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-
     """Set up Bibliotek from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
+    new_data = {**entry.data, **entry.options}
     hass.data[DOMAIN][entry.entry_id] = Library(
         entry.data[CONF_USER_ID],
         entry.data[CONF_PINCODE],
         entry.data[CONF_HOST],
         entry.data[CONF_AGENCY],
         libraryName=entry.data[CONF_MUNICIPALITY],
+        use_eReolen=new_data.get(CONF_SHOW_ELOANS, True),
     )
     # update options listener
     entry.async_on_unload(entry.add_update_listener(update_listener))
@@ -46,6 +49,7 @@ async def update_listener(hass, entry):
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        hass.data[DOMAIN].pop(entry.entry_id)
+        library = hass.data[DOMAIN].pop(entry.entry_id)
+        await hass.async_add_executor_job(library.session.close)
 
     return unload_ok
