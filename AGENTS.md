@@ -21,7 +21,9 @@ custom_components/bibliotek_dk/
 ├── __init__.py        # async_setup_entry / unload; stores one Library per config entry
 ├── config_flow.py     # UI config + options flow; library list scraping; municipality lookup
 ├── const.py           # CONF_* keys, headers, GraphQL query strings, URLs
-├── library_api.py     # Library client: login, tokens, fetchLoans/Reservations/Debts/UserInfo
+├── transport.py       # LibraryTransport: session, login, tokens, _get/_post
+├── models.py          # libraryUser + libraryMaterial/Loan/Reservation/Debt holders
+├── library_api.py     # Library facade: update(), fetch* methods, caches
 ├── sensor.py          # DataUpdateCoordinator + the sensor entities
 ├── manifest.json      # version, requirements, codeowners
 ├── strings.json       # translation source (HA requires this to mirror translations/)
@@ -70,18 +72,28 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 
 ## Gotchas (read before editing)
 
-- **`library_api.py` is one large, stateful class.** `Library` keeps instance
-  state across polls (`libraryUser` state is per-instance, set in `__init__`).
-  `login()` and token refresh mutate `self.loggedIn`, `self._user_token`,
-  `self._user_token_exp`. `_user_token_exp` is `None` until a user token is
-  issued; the token properties guard against that. All HTTP goes through
-  `Library._get` / `_post`, which apply the `REQUEST_TIMEOUT` and route through a
-  session mounted with a `urllib3.Retry` adapter — use them instead of calling
-  `self.session.get/post` directly.
+- **The client is split across three modules.** `transport.py` holds
+  `LibraryTransport` (session, `login()`, tokens, `_get`/`_post` with
+  `REQUEST_TIMEOUT`, and the `urllib3.Retry` adapter). `models.py` holds the dumb
+  data holders (`libraryUser`, `libraryMaterial`/`Loan`/`Reservation`/
+  `ReservationReady`/`Debt`). `library_api.py` keeps `Library` — the
+  coordinator-facing facade that owns the per-account state (`user`, `branches`,
+  `_urls`, `_details`, `_user_info_fetched`) and the `fetch*` methods. `Library`
+  exposes `.host`, `.session`, `.login()`, `.logout()` as passthroughs to its
+  transport, and re-exports the model names plus `REQUEST_TIMEOUT` so existing
+  imports (`from .library_api import libraryLoan`) keep working. `sensor.py`
+  imports the models from `.models` directly.
+- **`Library` keeps instance state across polls.** `login()` and token refresh
+  mutate `self._transport.loggedIn`, `_user_token`, `_user_token_exp`.
+  `_user_token_exp` is `None` until a user token is issued; the token properties
+  guard against that. All HTTP goes through `LibraryTransport._get` / `_post`,
+  which apply the `REQUEST_TIMEOUT` and route through a session mounted with a
+  `urllib3.Retry` adapter — use them instead of calling `self.session.get/post`
+  directly.
 - **Logging is f-string based** throughout; `_LOGGER.debug(...)` is always emitted
   (no module-level DEBUG flag). Gate output via HA's logger config
-  (`custom_components.bibliotek_dk: debug`). `Library._debug` just prefixes the
-  patron date.
+  (`custom_components.bibliotek_dk: debug`). `LibraryTransport._debug` just
+  prefixes the patron date.
 - **`update()` refreshes the profile at most once a day** (`_user_info_fetched`),
   and on the first poll. The `fetch*` methods leave the previous state in place on
   a failed request and log a warning.

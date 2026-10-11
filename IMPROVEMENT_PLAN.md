@@ -4,7 +4,7 @@ Findings from a read-through of the whole repo (v0.6.1). Ordered so the
 highest-impact, lowest-risk work lands first. Each item names the file(s) and a
 concrete change.
 
-> **Status:** Sections 1–3 are done, plus the smaller Section 4/5 items (see
+> **Status:** Sections 1–4 are done, plus the Section 5 items noted below (see
 > `CHANGELOG.md` 0.6.2 / 0.7.0). The URL / fee-type field names were confirmed
 > against the live DBC APIs and the library frontend's own `dpl-react` bundle.
 
@@ -92,13 +92,19 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 ---
 
-## 4. Architecture / code quality — DONE (except the big split)
+## 4. Architecture / code quality — DONE
 
 - **`Library` is a god-object** mixing HTTP, auth, parsing, and domain models.
   Split into: a transport/session layer (auth + tokens), a per-resource fetcher,
   and plain dataclasses for `libraryLoan` / `libraryReservation` / `libraryDebt`.
-  This is a bigger refactor — do it behind tests from section 2. **Still open**
-  (deferred; the smaller items below landed first).
+  This is a bigger refactor — do it behind tests from section 2. — DONE (0.7.0):
+  `transport.py` (`LibraryTransport`: session, login, tokens, `_get`/`_post`,
+  `REQUEST_TIMEOUT`), `models.py` (`libraryUser` + the material/loan/reservation/
+  debt holders), and `library_api.py` keeps `Library` as a thin coordinator-facing
+  facade over the transport plus the `fetch*` methods and the details/branch
+  caches. The public API is unchanged (`Library`, the model names and
+  `REQUEST_TIMEOUT` are re-exported from `library_api`), verified against the
+  live account.
 - **Class-level mutable defaults** (`loans = []`, `debts = []` on `libraryUser`)
   are shared until an instance assigns its own. Convert to instance state in
   `__init__` to avoid cross-instance aliasing. — DONE (0.7.0).

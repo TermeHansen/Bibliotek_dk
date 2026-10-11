@@ -1,18 +1,17 @@
-"""Unit tests for the Library client parsing logic.
+"""Unit tests for the Library facade and its per-resource fetchers.
 
-These use small, anonymised fixtures shaped like the real DBC responses
-(see ``tests/data/``) and never touch the network.
+Model parsing lives in ``test_models.py`` and transport/token handling in
+``test_transport.py``; these tests exercise the coordinator-facing surface.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 
+from custom_components.bibliotek_dk import library_api
 from custom_components.bibliotek_dk.library_api import (
     Library,
-    libraryDebt,
     libraryLoan,
-    libraryMaterial,
     libraryReservation,
     libraryReservationReady,
 )
@@ -30,63 +29,6 @@ def _manifestation(pid="870970-basis:123", work_id="work-of:870970-basis:123"):
             "materialTypes": [{"materialTypeSpecific": {"display": "bog"}}],
         }
     }
-
-
-def _ereolen_product(isbn="9788740003826"):
-    """Build an eReolen pubhub product payload."""
-    return {
-        "title": "Kvinden i buret",
-        "thumbnailUri": "https://example.invalid/thumb.jpg",
-        "format": "epub",
-        "externalProductId": {"idType": 15, "id": isbn},
-        "internalProductId": "d69c230b-d037-4de7-afad-8ee701111673",
-        "contributors": [{"firstName": "Jussi", "lastName": "Adler-Olsen"}],
-    }
-
-
-def test_physical_material_url_from_work_id():
-    mat = libraryMaterial(_manifestation(work_id="work-of:870970-basis:51069609"))
-    assert mat.title == "Some Title"
-    assert mat.creators == "A. Author"
-    assert mat.type == "bog"
-    assert mat.url == "https://bibliotek.dk/work/work-of:870970-basis:51069609"
-
-
-def test_physical_material_url_missing_owner_work():
-    data = _manifestation()
-    del data["manifestation"]["ownerWork"]
-    mat = libraryMaterial(data)
-    assert mat.url is None
-
-
-def test_ereolen_material_url_from_isbn():
-    mat = libraryMaterial(_ereolen_product(isbn="9788740003826"))
-    assert mat.title == "Kvinden i buret"
-    assert mat.creators == "JussiAdler-Olsen"
-    assert mat.type == "epub"
-    assert mat.url == "https://bibliotek.dk/?q=9788740003826"
-
-
-def test_ereolen_material_url_missing_isbn():
-    data = _ereolen_product()
-    del data["externalProductId"]
-    mat = libraryMaterial(data)
-    assert mat.url is None
-
-
-def test_material_parse_failure_is_swallowed():
-    # Neither branch matches -> no exception, fields stay None.
-    mat = libraryMaterial({"unexpected": True})
-    assert mat.title is None
-    assert mat.url is None
-
-
-def test_debt_fee_type_and_amount():
-    debt = libraryDebt(_manifestation())
-    debt.feeType = "overdue"
-    debt.feeAmount = "25.50"
-    assert debt.feeType == "overdue"
-    assert debt.feeAmount == "25.50"
 
 
 def test_sort_lists_orders_loans_by_expire_then_title():
@@ -164,10 +106,11 @@ def test_use_ereolen_defaults_true_and_is_settable():
     assert lib2.use_eReolen is False
 
 
-def test_token_expiry_is_none_before_first_login():
-    # Regression: user_token compared an attribute that was never set.
+def test_host_and_session_are_exposed_from_transport():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
-    assert lib._user_token_exp is None
+    assert lib.host == "https://example.invalid"
+    # The session is the transport's session (closed on unload).
+    assert lib.session is lib._transport.session
 
 
 class _FakeResponse:
@@ -193,26 +136,18 @@ class _FakeSession:
     def get(self, url, **kwargs):
         return self._get
 
+    def close(self):
+        return None
+
 
 def _ready_library(session):
     """A Library with a valid token and a stubbed session (no login calls)."""
     lib = Library("1234", "0000", "https://example.invalid", "710100")
     lib.session = session
     lib._urls = {"data-fbi-global-base-url": "https://details.invalid/graphql"}
-    lib._user_token = "x" * 8
-    lib._user_token_exp = dt.datetime.now() + dt.timedelta(hours=1)
+    lib._transport._user_token = "x" * 8
+    lib._transport._user_token_exp = dt.datetime.now() + dt.timedelta(hours=1)
     return lib
-
-
-def test_session_is_configured_with_timeout_and_retries():
-    from custom_components.bibliotek_dk import library_api
-
-    lib = Library("1234", "0000", "https://example.invalid", "710100")
-    adapter = lib.session.get_adapter("https://example.invalid")
-    assert adapter.max_retries.total == 3
-    assert 500 in adapter.max_retries.status_forcelist
-    # The helpers apply a default timeout when the caller does not pass one.
-    assert library_api.REQUEST_TIMEOUT == (10, 30)
 
 
 def test_get_details_returns_empty_dict_on_non_200():
@@ -293,3 +228,9 @@ def test_all_log_records_format_without_error(caplog):
     for record in caplog.records:
         record.getMessage()
     assert any("Updating" in r.getMessage() for r in caplog.records)
+
+
+def test_public_constants_are_reexported():
+    # Callers/tests import these from library_api; keep them stable.
+    assert library_api.REQUEST_TIMEOUT == (10, 30)
+    assert library_api.DETAILS_CACHE_MAX == 500

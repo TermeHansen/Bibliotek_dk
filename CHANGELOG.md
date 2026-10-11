@@ -34,6 +34,11 @@
 * Fixed a logging crash ("not all arguments converted during string formatting")
   in the update debug message.
 * Internal cleanup (no user-visible behavior change):
+  - the `Library` god-object is split up: HTTP/login/token handling now lives in
+    `transport.py` (`LibraryTransport`), the data holders in `models.py`, and
+    `library_api.py` keeps `Library` as the coordinator-facing facade with the
+    per-resource fetchers. The public API (including the model classes and
+    `REQUEST_TIMEOUT`) is unchanged.
   - the sensor entities now share a common base class, removing ~90% duplicated
     code (all sensors behave and report identical state/attributes).
   - `libraryUser` state (loans, debts, …) is now per-instance instead of

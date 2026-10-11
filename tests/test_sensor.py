@@ -18,8 +18,8 @@ from custom_components.bibliotek_dk.const import (
     CONF_UPDATE_INTERVAL,
     DOMAIN,
 )
-from custom_components.bibliotek_dk.library_api import (
-    Library,
+from custom_components.bibliotek_dk.library_api import Library
+from custom_components.bibliotek_dk.models import (
     libraryDebt,
     libraryLoan,
     libraryMaterial,

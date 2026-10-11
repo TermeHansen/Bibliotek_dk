@@ -25,7 +25,8 @@ from homeassistant.const import (
     ATTR_ENTITY_PICTURE,
 )
 
-from .library_api import Library, libraryUser
+from .library_api import Library
+from .models import libraryUser
 
 _LOGGER = logging.getLogger(__name__)
 
