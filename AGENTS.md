@@ -95,8 +95,15 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   (`custom_components.bibliotek_dk: debug`). `LibraryTransport._debug` just
   prefixes the patron date.
 - **`update()` refreshes the profile at most once a day** (`_user_info_fetched`),
-  and on the first poll. The `fetch*` methods leave the previous state in place on
-  a failed request and log a warning.
+  and on the first poll; the timestamp only advances on a successful fetch. The
+  `fetch*` methods keep the previous state on a failed request and log a warning.
+  The physical (DBC) and eReolen sources are cached separately in
+  `_loans`/`_loans_overdue`/`_reservations`/`_reservations_ready` (keyed by
+  source), and the `user` lists are the merged successful results — so one
+  failing API does not discard the other's fresh data.
+- **A kept-without-details item has `title is None`** (a failed `_getDetails`
+  returns `{}`); `sortLists()` falls back to `""` so a sort key never mixes
+  `None` with `str`.
 - **`_details` is a bounded cache** (`DETAILS_CACHE_MAX`); `_getDetails` returns
   `{}` on failure instead of raising.
 - **`sensor.py` honors the show/hide options** when creating entities (0.7.0).

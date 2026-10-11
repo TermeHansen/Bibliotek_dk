@@ -39,7 +39,9 @@
   hides an outstanding item.
 * A failed loans/reservations/debts request now keeps the previously fetched
   items instead of replacing them with an empty list, so an API outage no longer
-  shows zero loans/fees as real data.
+  shows zero loans/fees as real data. The physical and eReolen sources are
+  tracked separately, so one failing API no longer discards the other's fresh
+  results.
 * A failed daily profile refresh now retries on the next poll instead of
   suppressing further attempts for a day.
 * Retries no longer raise `RetryError` once the status retries are exhausted;

@@ -71,6 +71,14 @@ class Library:
         self.branches = {}
         self._urls = {}
         self._details = {}
+        # Last successful per-source lists. A failed request keeps its source's
+        # previous items rather than publishing an empty list; the two sources
+        # (physical DBC and eReolen) are tracked separately so one failing API
+        # does not discard the other's fresh results.
+        self._loans = {"physical": [], "ereolen": []}
+        self._loans_overdue = {"physical": [], "ereolen": []}
+        self._reservations = {"physical": [], "ereolen": []}
+        self._reservations_ready = {"physical": [], "ereolen": []}
 
         self._transport = LibraryTransport(host, self.user)
 
@@ -270,16 +278,14 @@ class Library:
 
     # Get the loans with all possible details
     def fetchLoans(self):
-        loans = []
-        loansOverdue = []
-
         # Physical books
         res = self._get(
             "https://fbs-openplatform.dbc.dk/external/agencyid/patrons/patronid/loans/v2",
             headers=self.json_header,
         )
-        physical_ok = res.status_code == 200
-        if physical_ok:
+        if res.status_code == 200:
+            physical = []
+            physical_overdue = []
             for material in res.json():
                 id = material["loanDetails"]["recordId"]
                 # A failed details lookup returns {}; keep the loan anyway (the
@@ -298,9 +304,11 @@ class Library:
                 ) + timedelta(hours=23, minutes=59)
                 obj.id = material["loanDetails"]["materialItemNumber"]
                 if obj.expireDate < datetime.now():
-                    loansOverdue.append(obj)
+                    physical_overdue.append(obj)
                 else:
-                    loans.append(obj)
+                    physical.append(obj)
+            self._loans["physical"] = physical
+            self._loans_overdue["physical"] = physical_overdue
         else:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching loans ({res.status_code})"
@@ -311,8 +319,7 @@ class Library:
                 "https://pubhub-openplatform.dbc.dk/v1/user/loans",
                 headers=self.json_header,
             )
-            ereolen_ok = res.status_code == 200
-            if ereolen_ok:
+            if res.status_code == 200:
                 edata = res.json()
 
                 self.user.eBooks = edata["userData"]["totalEbookLoans"]
@@ -324,6 +331,7 @@ class Library:
                     "maxConcurrentAudiobookLoansPerBorrower"
                 ]
 
+                ereloans = []
                 for material in edata["loans"]:
                     id = material["libraryBook"]["identifier"]
                     res2 = self._get(
@@ -342,11 +350,12 @@ class Library:
                         obj.expireDate = parser.parse(
                             material["loanExpireDateUtc"], ignoretz=True
                         )
-                        loans.append(obj)
+                        ereloans.append(obj)
                     else:
                         _LOGGER.warning(
                             f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
                         )
+                self._loans["ereolen"] = ereloans
             else:
                 _LOGGER.warning(
                     f"({self.user.date}) Error fetching eReolen loans ({res.status_code})"
@@ -356,30 +365,30 @@ class Library:
             self.user.eBooksQuota = 0
             self.user.audioBooks = 0
             self.user.audioBooksQuota = 0
-            ereolen_ok = True
+            self._loans["ereolen"] = []
+            self._loans_overdue["ereolen"] = []
 
-        # Publish the new lists only when every source answered; on a failed
-        # request keep the previous state so an API outage does not show zero
-        # loans as real data.
-        if physical_ok and ereolen_ok:
-            self.user.loans = loans
-            self.user.loansOverdue = loansOverdue
+        # Merge the last successful results from each source; a failed request
+        # keeps its source's previous items, so an outage shows stale data
+        # rather than zero.
+        self.user.loans = self._loans["physical"] + self._loans["ereolen"]
+        self.user.loansOverdue = (
+            self._loans_overdue["physical"] + self._loans_overdue["ereolen"]
+        )
 
     # Get the current reservations
     def fetchReservations(self):
-        reservations = []
-        reservationsReady = []
-
         # Physical books
         res = self._get(
             "https://fbs-openplatform.dbc.dk/external/v1/agencyid/patrons/patronid/reservations/v2",
             headers=self.json_header,
         )
-        physical_ok = res.status_code == 200
-        if physical_ok:
+        if res.status_code == 200:
             materials = {
                 item["transactionId"]: item for item in res.json()
             }  # make sure only to take last if more than one item with same transaction
+            physical = []
+            physical_ready = []
             for material in materials.values():
                 id = material["recordId"]
                 # A failed details lookup returns {}; keep the reservation anyway
@@ -402,11 +411,13 @@ class Library:
                     obj.pickupDate = parser.parse(
                         material["pickupDeadline"], ignoretz=True
                     )
-                    reservationsReady.append(obj)
+                    physical_ready.append(obj)
                 else:
                     obj.expireDate = parser.parse(material["expiryDate"], ignoretz=True)
                     obj.queueNumber = material["numberInQueue"]
-                    reservations.append(obj)
+                    physical.append(obj)
+            self._reservations["physical"] = physical
+            self._reservations_ready["physical"] = physical_ready
         else:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching reservations ({res.status_code})"
@@ -418,9 +429,9 @@ class Library:
                 "https://pubhub-openplatform.dbc.dk/v1/user/reservations",
                 headers=self.json_header,
             )
-            ereolen_ok = res.status_code == 200
-            if ereolen_ok:
+            if res.status_code == 200:
                 edata = res.json()
+                erereservations = []
                 for material in edata["reservations"]:
                     id = material["identifier"]
                     res2 = self._get(
@@ -442,22 +453,27 @@ class Library:
                             material["createdDateUtc"], ignoretz=True
                         )
                         obj.pickupLibrary = "ereolen.dk"
-                        reservations.append(obj)
+                        erereservations.append(obj)
                     else:
                         _LOGGER.warning(
                             f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
                         )
+                self._reservations["ereolen"] = erereservations
             else:
                 _LOGGER.warning(
                     f"({self.user.date}) Error fetching eReolen reservations ({res.status_code})"
                 )
         else:
-            ereolen_ok = True
-        # Publish only when both sources answered; otherwise keep the previous
-        # state (see fetchLoans).
-        if physical_ok and ereolen_ok:
-            self.user.reservations = reservations
-            self.user.reservationsReady = reservationsReady
+            self._reservations["ereolen"] = []
+            self._reservations_ready["ereolen"] = []
+
+        # Merge the last successful results from each source (see fetchLoans).
+        self.user.reservations = (
+            self._reservations["physical"] + self._reservations["ereolen"]
+        )
+        self.user.reservationsReady = (
+            self._reservations_ready["physical"] + self._reservations_ready["ereolen"]
+        )
 
     # Get debts, if any, from the Library
     def fetchDebts(self):

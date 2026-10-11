@@ -316,7 +316,7 @@ def test_fetch_loans_keeps_previous_state_on_api_error():
     lib.use_eReolen = False
     existing = libraryLoan(_manifestation())
     existing.title = "Existing"
-    lib.user.loans = [existing]
+    lib._loans["physical"] = [existing]
 
     lib.fetchLoans()
 
@@ -328,11 +328,86 @@ def test_fetch_reservations_keeps_previous_state_on_api_error():
     lib.use_eReolen = False
     existing = libraryReservation(_manifestation())
     existing.title = "Existing"
-    lib.user.reservations = [existing]
+    lib._reservations["physical"] = [existing]
 
     lib.fetchReservations()
 
     assert lib.user.reservations == [existing]
+
+
+def test_fetch_loans_keeps_physical_when_ereolen_fails():
+    # Regression: requiring both sources discarded good physical results when
+    # eReolen was down.
+    loans = [
+        {
+            "loanDetails": {
+                "recordId": "faust-1",
+                "loanId": "loan-1",
+                "loanDate": "2026-01-01",
+                "dueDate": "2030-01-01",
+                "materialItemNumber": "item-1",
+            },
+            "isRenewable": True,
+        }
+    ]
+    responses = [_FakeResponse(payload=loans), _FakeResponse(status_code=503)]
+
+    def fake_get(url, **kwargs):
+        return responses.pop(0)
+
+    session = _FakeSession(post=_FakeResponse(status_code=500), get=None)
+    session.get = fake_get
+    lib = _ready_library(session)
+    lib.use_eReolen = True
+
+    lib.fetchLoans()
+
+    # Physical loan kept even though the eReolen call failed.
+    assert len(lib.user.loans) == 1
+
+
+def test_fetch_loans_keeps_ereolen_when_physical_fails():
+    ereolen = {
+        "userData": {"totalEbookLoans": 1, "totalAudioLoans": 0},
+        "libraryData": {
+            "maxConcurrentEbookLoansPerBorrower": 3,
+            "maxConcurrentAudiobookLoansPerBorrower": 3,
+        },
+        "loans": [
+            {
+                "libraryBook": {"identifier": "id-1"},
+                "orderDateUtc": "2026-01-01",
+                "loanExpireDateUtc": "2030-01-01",
+            }
+        ],
+    }
+    product = {
+        "product": {
+            "title": "E",
+            "thumbnailUri": "u",
+            "format": "epub",
+            "contributors": [],
+        }
+    }
+    responses = [
+        _FakeResponse(status_code=503),  # physical loans
+        _FakeResponse(payload=ereolen),  # eReolen loans
+        _FakeResponse(payload=product),  # eReolen product
+    ]
+
+    def fake_get(url, **kwargs):
+        return responses.pop(0)
+
+    session = _FakeSession(post=_FakeResponse(status_code=500), get=None)
+    session.get = fake_get
+    lib = _ready_library(session)
+    lib.use_eReolen = True
+
+    lib.fetchLoans()
+
+    # eReolen loan kept even though the physical call failed.
+    assert len(lib.user.loans) == 1
+    assert lib.user.loans[0].title == "E"
 
 
 def test_fetch_debts_keeps_previous_state_on_api_error():
