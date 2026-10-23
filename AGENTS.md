@@ -38,22 +38,31 @@ tests/                 # pytest suite; conftest.py stubs homeassistant (no HA ne
 
 ## Commands
 
-Environment is conda/micromamba (`environment.yaml`). The test suite stubs the
-`homeassistant` package (`tests/conftest.py`), so it runs **without a Home
-Assistant install**.
+Dependencies are managed with **uv** (`pyproject.toml` is the source of truth,
+`uv.lock` is committed, CI runs `uv sync --group dev --locked`). The test suite
+stubs the `homeassistant` package (`tests/conftest.py`), so it runs **without a
+Home Assistant install**.
 
 ```bash
+# One-time setup (creates .venv from uv.lock)
+uv sync --group dev
+
 # Lint (this is what CI runs; must pass)
-ruff check --config pyproject.toml
-ruff format --check custom_components tests   # CI also enforces formatting
+uv run ruff check --config pyproject.toml
+uv run ruff format --check custom_components tests   # CI also enforces formatting
 
 # Tests (no HA needed; run in both timezones like CI does)
-TZ=Europe/Copenhagen pytest tests --disable-warnings
-TZ=UTC pytest tests --disable-warnings
+TZ=Europe/Copenhagen uv run pytest tests --disable-warnings
+TZ=UTC uv run pytest tests --disable-warnings
 
-# Create the dev environment
-micromamba create -f environment.yaml     # or: conda env create -f environment.yaml
+# After changing a dependency
+uv lock && uv sync --group dev
 ```
+
+If pytest dies with `ModuleNotFoundError` (`dateutil`, `bs4`, `voluptuous`),
+you are outside the uv venv — use `uv run` or `uv sync` first, not the bare
+system python. A conda route still works locally (`environment.yaml` mirrors
+the same dependency set for conda users), but CI and the docs above use uv.
 
 CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 **HACS** validation; `python-testing.yml` runs Ruff and pytest. All must pass.
@@ -147,6 +156,29 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   that's intentional, not a placeholder to fill in.
 - **Token expiry / auth is the most fragile area** (see recent commits). Changes
   there need manual testing against a real account; there is no automated coverage.
+  Known open issue (plan 7.1): a 200 token response *without* a user token is
+  currently silent — `login()` still reports success and `update()` returns
+  `True`, so sensors stay available with stale data; a fix must wire the failure
+  into the coordinator (raise `UpdateFailed`).
+- **Known open findings are tracked in `IMPROVEMENT_PLAN.md` Section 7** (from
+  the 2026-10-23 full review). Read it before changing the fetchers: per-item
+  payload keys are unguarded (7.2), eReolen products are fetched one request
+  per item per poll with no cache (7.3), and `renewLoans` builds its status
+  dict from the response only, so ids missing from the reply vanish (7.5).
+- **`_getDetails` falls back to a staging host** (`temp.fbi-api.dbc.dk`) when
+  the scraped `data-fbi-global-base-url` is missing; treat that fallback as
+  suspect (plan 7.9).
+- **`renew_id` is exposed only on the loans sensor**, not the overdue sensor —
+  overdue items are the same loans, so the id is available if a future renew UX
+  needs it.
+- **The remote branches `cleanup`, `new_API`, `no_ereol` are NOT merged** (3 /
+  19 / 6 unique commits ahead of `improvements2`); diff them against the
+  current code before deleting anything (plan Section 5).
+- **The repo is still a GitHub fork** of `J-Lindvig/Bibliotek_dk` (upstream
+  inactive since 2024-03, not archived; detach requested via GitHub support
+  2026-10-23). Don't add an `upstream` remote or sync from it; attribution is
+  the README Credits section, `CREDITS` in `const.py`, and `codeowners` in
+  `manifest.json`.
 
 ## Scope discipline
 

@@ -9,6 +9,12 @@ concrete change.
 > the renew endpoint were confirmed against the live DBC APIs and the library
 > frontend's own `dpl-react` bundle. The only remaining Section 5 item is the
 > remote branch cleanup (a remote operation, deliberately not done here).
+>
+> **2026-10-23 review pass:** the whole codebase was re-read and the claims
+> above re-verified against the code — suite 71 passed under both
+> `Europe/Copenhagen` and `UTC`, ruff check + format clean. Findings that were
+> not in the original plan are collected in Section 7; the Section 5
+> branch-cleanup note was corrected (the branches are *not* merged).
 
 ---
 
@@ -133,6 +139,12 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 - **Add `ruff format`** to CI (Ruff is configured but only `check` runs). — DONE
   (0.7.0): formatting applied across the codebase and `ruff format --check` added
   to `python-testing.yml`.
+- **CI environment switched from micromamba to uv** (2026-10-23): deps now live
+  in `pyproject.toml` (`[project]` + `[dependency-groups]` dev) with a committed
+  `uv.lock`; `python-testing.yml` uses `astral-sh/setup-uv@v10` +
+  `uv sync --group dev --locked`. Unused `aiohttp` dropped. `environment.yaml`
+  kept as the conda mirror — keep it in sync when adding a dependency. Mention
+  this under an "Internal" bullet in the next changelog entry.
 - **No `hacs.json` `version`** — fine (HACS reads `manifest.json`), but confirm the
   `homeassistant` min version if you adopt newer HA APIs. — DONE (0.8.0):
   `hacs.json` declares `"homeassistant": "2024.1.0"`.
@@ -146,6 +158,19 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
   `affalddk.code-workspace`). Trim. — DONE (0.7.0).
 - **Branch cleanup:** remote branches `cleanup`, `new_API`, `no_ereol` look merged;
   verify and delete. — Still open (needs a remote operation; not done).
+  **Corrected 2026-10-23:** they are *not* merged — `cleanup` has 3 unique
+  commits, `new_API` 19, `no_ereol` 6 (the messages suggest the work was redone
+  on `main` in different commits). Diff each against the current code
+  (`git diff origin/<branch>...improvements2 -- custom_components/`) before
+  deleting, and settle the fork detach first (see below): the
+  delete-and-recreate detach path would not preserve them, the support-ticket
+  path does.
+- **Fork detach:** `TermeHansen/Bibliotek_dk` is still a fork of
+  `J-Lindvig/Bibliotek_dk` (upstream inactive since 2024-03, not archived) and
+  has 3 child forks, so the one-click "Leave fork network" button is
+  unavailable; a GitHub support ticket (support.github.com/request/fork) is the
+  non-destructive route and was drafted 2026-10-23. README credits for the
+  original author added 2026-10-23. — In progress.
 
 ---
 
@@ -164,6 +189,83 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
   — DONE (0.7.0).
 - **Group sensors under an HA device** (one device per config entry) so they are
   not loose entities. — DONE (0.8.0).
+- **`renew_loans` without templating:** make `loan_ids` optional and default to
+  *all renewable loans of the entry*, so a button card or voice command can call
+  the service with just `config_entry_id`. Needs `services.yaml` + handler
+  changes and a version bump. — Open (proposed 2026-10-23).
+
+---
+
+## 7. Findings from the 2026-10-23 full review
+
+Found re-reading the whole codebase after 0.8.0, ordered by severity. None of
+these block a release on their own; 7.1 and 7.2 are the ones real users hit.
+
+### 7.1 Auth failure is silent — HIGH
+
+`LibraryTransport._set_tokens` only warns on a non-200 response. A 200 body
+*without* a user token (wrong PIN, PIN changed at the library, blocked patron)
+logs nothing, `login()` still returns truthy, and `Library.update()` returns
+`True` unconditionally — the coordinator stays "success", the entities stay
+available, and every sensor shows stale data indefinitely. Fix: make the
+login/token path report success explicitly and raise `UpdateFailed` (or mark
+the coordinator failed) when no user token is issued. Needs manual testing
+against a real account (token area — see AGENTS.md).
+
+### 7.2 One malformed item aborts the whole refresh — MEDIUM
+
+`libraryMaterial.__init__` guards its own parsing, but the per-item key
+accesses in the fetchers (`material["loanDetails"]["dueDate"]`,
+`debt["amount"]`, `edata["userData"]`, …) are unguarded. One unexpected payload
+raises through `fetchLoans`/`fetchReservations`/`fetchDebts`, fails the
+coordinator update and blanks every sensor — the "one failing API must not
+blank every sensor" principle, broken at item level. Fix: wrap the per-item
+body in try/except (log and skip the item) or validate the payload keys.
+
+### 7.3 eReolen N+1 product fetches — MEDIUM
+
+`fetchLoans`/`fetchReservations` do one sequential GET per e-loan /
+e-reservation on every poll (20 e-books = 20 requests, each with the 10s/30s
+timeout), while product metadata (title/cover/ISBN) is static. Fix: add a
+bounded `_products` cache mirroring `_details` (same pattern: bounded, `{}` on
+failure) so repeat polls issue zero product calls.
+
+### 7.4 eReolen creators concatenated without a separator — LOW
+
+`models.py` joins `firstName + lastName` directly ("SørenUlrik") and has no
+guard for missing keys. Join with a space and filter missing parts.
+
+### 7.5 `renewLoans` drops ids missing from the response — LOW
+
+`status` is built only from the response, so a loan id absent from the reply
+silently vanishes from the result. Seed `status = {id: None for id in
+loan_ids}` so the caller sees every requested id.
+
+### 7.6 `fetchUserInfo` int-cast can escape the handler — LOW
+
+`int(data["receiveSms"])` raises `TypeError` on `None`, which the
+`(AttributeError, KeyError)` handler does not catch, failing the whole profile
+refresh. Catch `TypeError`/`ValueError` too, or default the fields.
+
+### 7.7 Hand-rolled coordinator wiring — LOW
+
+`BibliotekBaseSensor` re-implements what HA's `CoordinatorEntity` provides
+(`should_poll`, `available`, listener wiring); the original Section 4 item even
+named `CoordinatorEntity`, but the implementation subclasses `SensorEntity`
+directly. Not a bug — adopting it deletes ~30 lines and one custom code path.
+
+### 7.8 Cosmetic — LOW
+
+- `Library.get_depts` should be `get_debts` (`library_api.py`, set in `sensor.py`).
+- Stale "eReolen reservation in Queue" comment in `LibrarySensor.state` (`sensor.py`).
+- `loansOverdue` and `debts` lists are never sorted (`sortLists` covers the rest).
+
+### 7.9 `_getDetails` staging-host fallback — NOTE
+
+When the scraped `data-fbi-global-base-url` is missing, the fallback is
+`https://temp.fbi-api.dbc.dk/...` — a staging host that may vanish; every poll
+then emits one warning per material. Consider failing soft (return `{}`
+without the request) or logging once per host instead of per material.
 
 ---
 
@@ -174,3 +276,16 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 3. Section 3 (robustness) — reduces flaky-user reports.
 4. Sections 4–5 (refactor + hygiene) — steady cleanup.
 5. Section 6 — as time allows.
+
+Remaining work, in the order it should land (proposed 2026-10-23):
+
+1. Section 7.1 + 7.2, plus the same-shape small fixes 7.4–7.6, as 0.8.1 —
+   bug polish, testable without HA; 7.1 needs a manual check against a real
+   account (token area).
+2. Section 7.3 + 7.7 + the Section 6 `renew_loans` default as 0.9.0 —
+   behavioral changes, version bump + changelog.
+3. Section 5 branch cleanup — after diffing each branch, and after the fork
+   detach is settled.
+4. Post-detach: revisit `codeowners` in `manifest.json` and `CREDITS` in
+   `const.py` (keeping both is fine as attribution — make it a conscious
+   choice).
