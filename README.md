@@ -122,3 +122,10 @@ Again almost identical to the prior [Reservations sensor](#reservations-sensor),
 - Date of last chance for pickup
 - Pick-up location
 - ~~Queue number~~
+
+## Credits
+
+This integration started out as a fork of
+[J-Lindvig/Bibliotek_dk](https://github.com/J-Lindvig/Bibliotek_dk) by
+Jacob Lindvig Henriksen. Thank you for the original work — this project would
+not exist without it.
