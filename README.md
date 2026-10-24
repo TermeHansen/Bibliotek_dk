@@ -39,6 +39,37 @@ The integration creates these sensors:
 - [Reservations Ready sensor](#reservations-ready-sensor)
 
 All sensors support the `show_*` options above; disabled groups are not created.
+All sensors for an account are grouped under a single device in Home Assistant.
+
+### Cards
+`loans_card.yaml` is a drop-in card: one row per loan, across every configured
+account, with the cover, title, author/type and "due in ...". It discovers the
+Bibliotek sensors itself (from their attributes), so there is nothing to edit and
+it keeps working when entities are renamed. Paste it into a dashboard (Add card →
+Manual) or use `dashboard.yaml` as a starting point.
+
+`loans_card_decluttering.yaml` is the same card as a
+[decluttering-card](https://github.com/custom-cards/decluttering-card) template,
+so you can pass a specific `entity` and `title`. (Home Assistant has no card
+blueprints; decluttering-card is the community equivalent.)
+
+Both need the HACS frontend cards `auto-entities` and `template-entity-row`; the
+cover popup on tap additionally needs `browser_mod` (remove the `tap_action`
+block if you do not use it).
+
+### Renewing loans
+Physical loans can be renewed from an automation or the Developer Tools with the
+`bibliotek_dk.renew_loans` service. It takes the `config_entry_id` and one or
+more `loan_ids` (the `renew_id` attribute on each item of the loans sensor) and
+returns the per-loan renewal status:
+
+```yaml
+service: bibliotek_dk.renew_loans
+data:
+  config_entry_id: 0f1e2d3c4b5a69788796a5b4c3d2e1f0
+  loan_ids:
+    - "1234567"
+```
 
 ### General Library Sensor
 A general sensor with "days to return" in state (based on the next loan) and:
@@ -91,3 +122,10 @@ Again almost identical to the prior [Reservations sensor](#reservations-sensor),
 - Date of last chance for pickup
 - Pick-up location
 - ~~Queue number~~
+
+## Credits
+
+This integration started out as a fork of
+[J-Lindvig/Bibliotek_dk](https://github.com/J-Lindvig/Bibliotek_dk) by
+Jacob Lindvig Henriksen. Thank you for the original work — this project would
+not exist without it.

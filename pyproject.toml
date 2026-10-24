@@ -1,3 +1,32 @@
+# Dependency source of truth for development and CI (uv). The runtime deps are
+# the ones Home Assistant does not already bundle; the HA stub in
+# tests/conftest.py covers the rest. environment.yaml mirrors this for local
+# conda users — keep both in sync when adding a dependency.
+[project]
+name = "bibliotek-dk"
+version = "0.8.0"
+description = "Home Assistant custom integration for Danish public libraries (bibliotek.dk)"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "python-dateutil>=2.8",
+    "requests>=2.31",
+    "voluptuous>=0.13",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "freezegun>=1.5",
+    "ruff>=0.8",
+]
+
+# The integration is not a python package to build/install; it is loaded by
+# Home Assistant from custom_components/. Keep uv from trying to build it.
+[tool.uv]
+package = false
+
 [tool.ruff]
 lint.select = ["E", "F", "T", "B", "S"]
 lint.ignore = ["T201", "S101", "E501", "B006"]

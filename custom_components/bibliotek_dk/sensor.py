@@ -3,12 +3,21 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 
 from datetime import timedelta, datetime
+from decimal import Decimal
 import hashlib
 
 from .const import (
@@ -25,7 +34,7 @@ from homeassistant.const import (
     ATTR_ENTITY_PICTURE,
 )
 
-from .library_api import Library
+from .library_api import Library, LibraryAuthError
 from .models import libraryUser
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,7 +49,13 @@ async def async_setup_entry(
         # Retrieve the client stored in the hass data stack
         myLibrary = hass.data[DOMAIN][entry.entry_id]
         # Call, and wait for it to finish, the function with the refresh procedure
-        await hass.async_add_executor_job(myLibrary.update)
+        try:
+            await hass.async_add_executor_job(myLibrary.update)
+        except LibraryAuthError as err:
+            # Surface a failed login (bad credentials, blocked account, ...)
+            # as an update failure so the sensors go unavailable instead of
+            # silently serving stale data.
+            raise UpdateFailed(err) from err
 
     # Create a coordinator
     new_data = {**entry.data, **entry.options}
@@ -55,6 +70,9 @@ async def async_setup_entry(
     myLibrary.get_loans = new_data[CONF_SHOW_LOANS]
     myLibrary.get_depts = new_data[CONF_SHOW_DEBTS]
     myLibrary.get_reservations = new_data[CONF_SHOW_RESERVATIONS]
+    # Expose the coordinator so services (renew_loans) can request a refresh
+    # without reloading the whole config entry.
+    myLibrary.coordinator = coordinator
 
     # Immediate refresh
     await coordinator.async_request_refresh()
@@ -77,6 +95,17 @@ async def async_setup_entry(
     if new_data[CONF_SHOW_RESERVATIONS]:
         sensors.append(ReservationSensor(myLibrary.user, coordinator))
         sensors.append(ReservationReadySensor(myLibrary.user, coordinator))
+
+    # Group every sensor under a single device per config entry.
+    device_info = DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        entry_type=DeviceEntryType.SERVICE,
+        name=entry.title,
+        manufacturer="DBC / bibliotek.dk",
+        model=myLibrary.libraryName,
+    )
+    for sensor in sensors:
+        sensor._attr_device_info = device_info
 
     async_add_entities(sensors)
 
@@ -265,6 +294,8 @@ class LoanSensor(BibliotekCountSensor):
             "loan_date": loan.loanDate,
             "expire_date": loan.expireDate,
             "renewable": loan.renewAble,
+            # The API loan id, needed by the renew_loans service.
+            "renew_id": loan.renewId,
             "url": loan.url,
             "cover": loan.coverUrl,
         }
@@ -375,6 +406,11 @@ class DebtSensor(BibliotekCountSensor):
     _icon_single = "mdi:cash"
     _icon_many = "mdi:cash-multiple"
 
+    # Report the outstanding total as a monetary amount (DKK).
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = "DKK"
+    _attr_state_class = SensorStateClass.TOTAL
+
     def __init__(
         self, library_user: libraryUser, coordinator: DataUpdateCoordinator
     ) -> None:
@@ -393,6 +429,11 @@ class DebtSensor(BibliotekCountSensor):
     @property
     def state(self):
         return self.libraryUser.debtsAmount
+
+    @property
+    def native_value(self):
+        # Monetary sensors report a Decimal so HA does not render float noise.
+        return Decimal(str(self.libraryUser.debtsAmount))
 
     def _item_attrs(self, debt) -> dict:
         return {
