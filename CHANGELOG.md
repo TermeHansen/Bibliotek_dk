@@ -1,5 +1,25 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.8.1
+
+**Date**: `2026-10-24`
+
+### Changes
+
+* A failed login (wrong PIN, changed PIN, blocked account) now marks the
+  sensors **unavailable** instead of silently serving stale data. Previously a
+  token response without a user token went unnoticed and every sensor kept its
+  old values indefinitely. The failed-login path needs a manual check against a
+  real account (see `IMPROVEMENT_PLAN.md` 7.1).
+* One malformed loan/reservation/fee entry no longer aborts the whole refresh —
+  the entry is skipped with a warning and the rest of the data still updates.
+* eReolen creator names are now joined with spaces ("Jussi Adler-Olsen", was
+  "JussiAdler-Olsen") and missing name parts no longer blank the whole item.
+* The `renew_loans` response now includes every requested loan id — an id
+  missing from the API reply shows up as `None` instead of vanishing.
+* Unexpected values in the library profile (e.g. a missing SMS flag) no longer
+  fail the daily profile refresh.
+
 ## Version 0.8.0
 
 **Date**: `2026-10-11`

@@ -49,13 +49,19 @@ class libraryMaterial:
                 # from ereol
                 self.coverUrl = data["thumbnailUri"]
                 self.title = data["title"]
-                self.creators = " og ".join(
-                    [
-                        item["firstName"] + item["lastName"]
-                        for item in data["contributors"]
-                    ]
+                self.creators = (
+                    " og ".join(
+                        " ".join(
+                            part
+                            for part in (item.get("firstName"), item.get("lastName"))
+                            if part
+                        ).strip()
+                        for item in (data.get("contributors") or [])
+                        if isinstance(item, dict)
+                    )
+                    or None
                 )
-                self.type = data["format"]
+                self.type = data.get("format")
                 # The eReolen SPA has no server-side deep links, so link to a
                 # bibliotek.dk search on the product's ISBN (externalProductId).
                 isbn = (data.get("externalProductId") or {}).get("id")

@@ -11,7 +11,10 @@ from homeassistant.components.sensor import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 
 from datetime import timedelta, datetime
 from decimal import Decimal
@@ -31,7 +34,7 @@ from homeassistant.const import (
     ATTR_ENTITY_PICTURE,
 )
 
-from .library_api import Library
+from .library_api import Library, LibraryAuthError
 from .models import libraryUser
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,7 +49,13 @@ async def async_setup_entry(
         # Retrieve the client stored in the hass data stack
         myLibrary = hass.data[DOMAIN][entry.entry_id]
         # Call, and wait for it to finish, the function with the refresh procedure
-        await hass.async_add_executor_job(myLibrary.update)
+        try:
+            await hass.async_add_executor_job(myLibrary.update)
+        except LibraryAuthError as err:
+            # Surface a failed login (bad credentials, blocked account, ...)
+            # as an update failure so the sensors go unavailable instead of
+            # silently serving stale data.
+            raise UpdateFailed(err) from err
 
     # Create a coordinator
     new_data = {**entry.data, **entry.options}

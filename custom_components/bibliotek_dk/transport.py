@@ -117,18 +117,30 @@ class LibraryTransport:
 
     def _set_tokens(self):
         res = self._get(f"{self.host}/dpl-react/user-tokens")
-        if res.status_code == 200:
-            # The endpoint returns a JSON object with a "library" token (always)
-            # and a "user" token (only once the patron is authenticated); we only
-            # use the latter.
-            if '"user"' in res.text:
-                self.loggedIn = self.host + "/logout"
-                self._user_token = res.text.split('"user"')[1].split('"')[1]
-                self._user_token_exp = datetime.now() + timedelta(days=1)
-        else:
+        if res.status_code != 200:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching user tokens ({res.status_code})"
             )
+            return
+        # The endpoint returns a JSON object with a "library" token (always)
+        # and a "user" token (only once the patron is authenticated); we only
+        # use the latter.
+        if '"user"' in res.text:
+            self.loggedIn = self.host + "/logout"
+            self._user_token = res.text.split('"user"')[1].split('"')[1]
+            self._user_token_exp = datetime.now() + timedelta(days=1)
+            return
+        # A 200 without a user token means the patron is not authenticated
+        # (wrong credentials, blocked account, ...). Clear any stale token so
+        # callers never keep using one, and say so — this used to be silent,
+        # leaving the sensors available with stale data (plan 7.1).
+        self.loggedIn = ""
+        self._user_token = ""
+        self._user_token_exp = None
+        _LOGGER.warning(
+            f"({self.user.date}) Login did not yield a user token "
+            "(check user id and pincode)"
+        )
 
     @property
     def json_header(self):

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+import pytest
+
 from custom_components.bibliotek_dk import library_api
 from custom_components.bibliotek_dk.library_api import (
     Library,
@@ -470,6 +472,95 @@ def test_renew_loans_returns_empty_on_error():
     session = _FakeSession(post=_FakeResponse(status_code=400))
     lib = _ready_library(session)
     assert lib.renewLoans(["1"]) == {}
+
+
+def test_renew_loans_reports_ids_missing_from_response():
+    # Regression (plan 7.5): ids absent from the reply used to vanish from the
+    # status dict; they must show up as None ("no answer").
+    response = [{"loanDetails": {"loanId": 1}, "renewalStatus": ["renewed"]}]
+    session = _FakeSession(post=_FakeResponse(payload=response))
+    lib = _ready_library(session)
+
+    status = lib.renewLoans(["1", "2"])
+
+    assert status == {1: "renewed", 2: None}
+
+
+def test_update_raises_auth_error_without_user_token():
+    # Regression (plan 7.1): a login that yields no user token used to keep
+    # update() reporting success, leaving sensors available with stale data.
+    lib = _ready_library(_FakeSession())
+    lib._transport._user_token = ""
+    lib._transport.loggedIn = ""
+    # Stub the transport's login (the token property calls it internally);
+    # the property must not hand update() a token.
+    lib._transport.login = lambda: None
+
+    with pytest.raises(library_api.LibraryAuthError):
+        lib.update()
+
+
+def test_fetch_loans_skips_malformed_entry():
+    # Regression (plan 7.2): one unexpected payload used to abort the whole
+    # refresh and blank every sensor.
+    loans = [
+        {
+            "loanDetails": {
+                "recordId": "faust-1",
+                "loanId": "loan-1",
+                "loanDate": "2026-01-01",
+                "dueDate": "2030-01-01",
+                "materialItemNumber": "item-1",
+            },
+            "isRenewable": True,
+        },
+        # Missing loanId/dueDate: must be skipped, not fatal.
+        {"loanDetails": {"recordId": "faust-2"}},
+    ]
+    session = _FakeSession(
+        get=_FakeResponse(payload=loans), post=_FakeResponse(status_code=500)
+    )
+    lib = _ready_library(session)
+    lib.use_eReolen = False
+
+    lib.fetchLoans()
+
+    assert len(lib.user.loans) == 1
+    assert lib.user.loans[0].renewId == "loan-1"
+
+
+def test_fetch_debts_skips_malformed_fee():
+    fees = [
+        {"creationDate": "2026-01-01", "amount": "25.00", "type": "overdue"},
+        # Missing amount: must be skipped, not fatal.
+        {"creationDate": "2026-01-02"},
+    ]
+    lib = _ready_library(_FakeSession(get=_FakeResponse(payload=fees)))
+
+    lib.fetchDebts()
+
+    assert len(lib.user.debts) == 1
+    assert lib.user.debtsAmount == 25.0
+
+
+def test_fetch_user_info_survives_unexpected_casts():
+    # Regression (plan 7.6): int(None) raised TypeError outside the handler
+    # and failed the whole profile refresh.
+    patron = {
+        "patron": {
+            "name": "Test User",
+            "address": {"street": "S", "postalCode": "1000", "city": "C"},
+            "phoneNumber": "123",
+            "receiveSms": None,
+            "emailAddress": "mail@example.invalid",
+            "receiveEmail": True,
+            "preferredPickupBranch": "b",
+        }
+    }
+    lib = _ready_library(_FakeSession(get=_FakeResponse(payload=patron)))
+    lib._branchName = lambda _id: "Branch"
+
+    assert lib.fetchUserInfo() is False
 
 
 def test_public_constants_are_reexported():

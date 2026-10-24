@@ -48,6 +48,8 @@ class FakeSetupCoordinator:
 
     def __init__(self, *args, **kwargs):
         self.last_update_success = True
+        # The real coordinator exposes the update callable it was given.
+        self.update_method = kwargs.get("update_method")
 
     async def async_request_refresh(self):
         return None
@@ -214,17 +216,22 @@ async def _setup(monkeypatch, **overrides):
     def fake_add(entities):
         captured["entities"] = entities
 
-    monkeypatch.setattr(sensor_module, "DataUpdateCoordinator", FakeSetupCoordinator)
+    def fake_coordinator(*args, **kwargs):
+        coordinator = FakeSetupCoordinator(*args, **kwargs)
+        captured["coordinator"] = coordinator
+        return coordinator
+
+    monkeypatch.setattr(sensor_module, "DataUpdateCoordinator", fake_coordinator)
     lib = _library()
     hass = FakeSetupHass(lib)
     entry = FakeEntry(_entry_data(**overrides))
     await sensor_module.async_setup_entry(hass, entry, fake_add)
-    return captured.get("entities", [])
+    return captured.get("entities", []), captured.get("coordinator")
 
 
 @pytest.mark.asyncio
 async def test_setup_creates_all_sensors_when_enabled(monkeypatch):
-    entities = await _setup(monkeypatch)
+    entities, _ = await _setup(monkeypatch)
     types = {type(e).__name__ for e in entities}
     assert types == {
         "LibrarySensor",
@@ -238,7 +245,7 @@ async def test_setup_creates_all_sensors_when_enabled(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_setup_groups_sensors_under_one_device(monkeypatch):
-    entities = await _setup(monkeypatch)
+    entities, _ = await _setup(monkeypatch)
     infos = [e._attr_device_info for e in entities]
     assert all(info is not None for info in infos)
     # One device per config entry: identical identifiers on every sensor.
@@ -250,7 +257,7 @@ async def test_setup_groups_sensors_under_one_device(monkeypatch):
 @pytest.mark.asyncio
 async def test_setup_hides_disabled_sensor_groups(monkeypatch):
     # Regression: these gates were `if True`, so the options did nothing.
-    entities = await _setup(
+    entities, _ = await _setup(
         monkeypatch,
         **{
             CONF_SHOW_LOANS: False,
@@ -265,7 +272,7 @@ async def test_setup_hides_disabled_sensor_groups(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_setup_only_loans_enabled(monkeypatch):
-    entities = await _setup(
+    entities, _ = await _setup(
         monkeypatch,
         **{CONF_SHOW_DEBTS: False, CONF_SHOW_RESERVATIONS: False},
     )
@@ -276,3 +283,30 @@ async def test_setup_only_loans_enabled(monkeypatch):
         isinstance(e, (DebtSensor, ReservationSensor, ReservationReadySensor))
         for e in entities
     )
+
+
+@pytest.mark.asyncio
+async def test_setup_maps_auth_failure_to_update_failed(monkeypatch):
+    # Regression (plan 7.1): a failed login must surface as UpdateFailed so the
+    # coordinator marks the sensors unavailable instead of serving stale data.
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    from custom_components.bibliotek_dk.library_api import LibraryAuthError
+
+    entities, coordinator = await _setup(monkeypatch)
+    assert entities
+
+    def failing_update(self):
+        raise LibraryAuthError("Login failed for 1234")
+
+    monkeypatch.setattr(Library, "update", failing_update)
+    with pytest.raises(UpdateFailed):
+        await coordinator.update_method()
+
+    # Any other error must pass through unchanged, not be swallowed.
+    def other_update(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(Library, "update", other_update)
+    with pytest.raises(RuntimeError):
+        await coordinator.update_method()

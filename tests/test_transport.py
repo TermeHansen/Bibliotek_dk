@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from custom_components.bibliotek_dk.models import libraryUser
 from custom_components.bibliotek_dk.transport import REQUEST_TIMEOUT, LibraryTransport
 
@@ -102,3 +104,24 @@ def test_set_tokens_warns_on_non_200(caplog):
         transport._set_tokens()
     assert transport._user_token == ""
     assert any("user tokens" in r.getMessage() for r in caplog.records)
+
+
+def test_set_tokens_clears_stale_token_when_unauthenticated(caplog):
+    # Regression (plan 7.1): a 200 without a user token used to be silent, so a
+    # stale token stayed in place and the sensors kept serving old data.
+    import logging
+
+    library_tok = _tok("lib")
+    text = f'{{"library":"{library_tok}"}}'
+    transport = _transport(_FakeSession(get=_FakeResponse(text=text)))
+    transport._user_token = _tok("stale")
+    transport.loggedIn = "https://example.invalid/logout"
+    transport._user_token_exp = datetime.now()
+
+    with caplog.at_level(logging.WARNING):
+        transport._set_tokens()
+
+    assert transport._user_token == ""
+    assert transport.loggedIn == ""
+    assert transport._user_token_exp is None
+    assert any("user token" in r.getMessage() for r in caplog.records)

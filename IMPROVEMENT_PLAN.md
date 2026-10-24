@@ -203,24 +203,26 @@ these block a release on their own; 7.1 and 7.2 are the ones real users hit.
 
 ### 7.1 Auth failure is silent — HIGH
 
-`LibraryTransport._set_tokens` only warns on a non-200 response. A 200 body
+`LibraryTransport._set_tokens` only warned on a non-200 response. A 200 body
 *without* a user token (wrong PIN, PIN changed at the library, blocked patron)
-logs nothing, `login()` still returns truthy, and `Library.update()` returns
-`True` unconditionally — the coordinator stays "success", the entities stay
-available, and every sensor shows stale data indefinitely. Fix: make the
-login/token path report success explicitly and raise `UpdateFailed` (or mark
-the coordinator failed) when no user token is issued. Needs manual testing
-against a real account (token area — see AGENTS.md).
+logged nothing, `login()` still returned truthy, and `Library.update()` returned
+`True` unconditionally — the coordinator stayed "success", the entities stayed
+available, and every sensor showed stale data indefinitely. Fixed by clearing
+the stale token in `_set_tokens`, raising `LibraryAuthError` from `update()`
+when no user token is available, and mapping it to `UpdateFailed` in
+`sensor.async_setup_entry` so the sensors go unavailable. **The login-failure
+path still needs one manual check against a real account** (token area — see
+AGENTS.md).
 
-### 7.2 One malformed item aborts the whole refresh — MEDIUM
+### 7.2 One malformed item aborts the whole refresh — MEDIUM — DONE (0.8.1)
 
 `libraryMaterial.__init__` guards its own parsing, but the per-item key
 accesses in the fetchers (`material["loanDetails"]["dueDate"]`,
-`debt["amount"]`, `edata["userData"]`, …) are unguarded. One unexpected payload
-raises through `fetchLoans`/`fetchReservations`/`fetchDebts`, fails the
-coordinator update and blanks every sensor — the "one failing API must not
-blank every sensor" principle, broken at item level. Fix: wrap the per-item
-body in try/except (log and skip the item) or validate the payload keys.
+`debt["amount"]`, `edata["userData"]`, …) were unguarded. One unexpected payload
+raised through `fetchLoans`/`fetchReservations`/`fetchDebts`, failed the
+coordinator update and blanked every sensor. Fixed: the per-item body is
+wrapped in try/except — the entry is skipped with a warning and the rest of the
+list still updates.
 
 ### 7.3 eReolen N+1 product fetches — MEDIUM
 
@@ -230,22 +232,23 @@ timeout), while product metadata (title/cover/ISBN) is static. Fix: add a
 bounded `_products` cache mirroring `_details` (same pattern: bounded, `{}` on
 failure) so repeat polls issue zero product calls.
 
-### 7.4 eReolen creators concatenated without a separator — LOW
+### 7.4 eReolen creators concatenated without a separator — LOW — DONE (0.8.1)
 
-`models.py` joins `firstName + lastName` directly ("SørenUlrik") and has no
-guard for missing keys. Join with a space and filter missing parts.
+`models.py` joined `firstName + lastName` directly ("SørenUlrik") with no guard
+for missing keys. Now joined with a space, contributors missing either part are
+handled, and an empty contributor list yields `None`.
 
-### 7.5 `renewLoans` drops ids missing from the response — LOW
+### 7.5 `renewLoans` drops ids missing from the response — LOW — DONE (0.8.1)
 
-`status` is built only from the response, so a loan id absent from the reply
-silently vanishes from the result. Seed `status = {id: None for id in
-loan_ids}` so the caller sees every requested id.
+`status` was built only from the response, so a loan id absent from the reply
+silently vanished from the result. Now seeded with every requested id
+(`dict.fromkeys`), so a missing id shows up as `None` ("no answer").
 
-### 7.6 `fetchUserInfo` int-cast can escape the handler — LOW
+### 7.6 `fetchUserInfo` int-cast can escape the handler — LOW — DONE (0.8.1)
 
-`int(data["receiveSms"])` raises `TypeError` on `None`, which the
-`(AttributeError, KeyError)` handler does not catch, failing the whole profile
-refresh. Catch `TypeError`/`ValueError` too, or default the fields.
+`int(data["receiveSms"])` raised `TypeError` on `None`, which the
+`(AttributeError, KeyError)` handler did not catch, failing the whole profile
+refresh. The handler now also catches `TypeError`/`ValueError`.
 
 ### 7.7 Hand-rolled coordinator wiring — LOW
 

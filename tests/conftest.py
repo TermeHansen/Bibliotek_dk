@@ -183,6 +183,11 @@ if "homeassistant" not in sys.modules:
 
     update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
     update_coordinator.DataUpdateCoordinator = object
+
+    class UpdateFailed(Exception):
+        """Fake UpdateFailed raised when a coordinator update fails."""
+
+    update_coordinator.UpdateFailed = UpdateFailed
     helpers.update_coordinator = update_coordinator
 
     homeassistant.helpers = helpers

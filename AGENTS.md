@@ -156,15 +156,16 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   that's intentional, not a placeholder to fill in.
 - **Token expiry / auth is the most fragile area** (see recent commits). Changes
   there need manual testing against a real account; there is no automated coverage.
-  Known open issue (plan 7.1): a 200 token response *without* a user token is
-  currently silent — `login()` still reports success and `update()` returns
-  `True`, so sensors stay available with stale data; a fix must wire the failure
-  into the coordinator (raise `UpdateFailed`).
+  The silent-auth-failure issue (plan 7.1) is fixed as of 0.8.1: a token response
+  without a user token clears the stale token, `update()` raises
+  `LibraryAuthError`, and `sensor.py` maps it to `UpdateFailed` so the sensors go
+  unavailable — but the login-failure path still needs a manual check against a
+  real account.
 - **Known open findings are tracked in `IMPROVEMENT_PLAN.md` Section 7** (from
-  the 2026-10-23 full review). Read it before changing the fetchers: per-item
-  payload keys are unguarded (7.2), eReolen products are fetched one request
-  per item per poll with no cache (7.3), and `renewLoans` builds its status
-  dict from the response only, so ids missing from the reply vanish (7.5).
+  the 2026-10-23 full review; 7.1/7.2/7.4/7.5/7.6 fixed in 0.8.1). Read it
+  before changing the fetchers: eReolen products are fetched one request per
+  item per poll with no cache (7.3), and the `_getDetails` fallback host is
+  suspect (7.9).
 - **`_getDetails` falls back to a staging host** (`temp.fbi-api.dbc.dk`) when
   the scraped `data-fbi-global-base-url` is missing; treat that fallback as
   suspect (plan 7.9).

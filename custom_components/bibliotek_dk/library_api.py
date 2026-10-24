@@ -40,12 +40,18 @@ DETAILS_CACHE_MAX = 500
 
 _LOGGER = logging.getLogger(__name__)
 
+
+class LibraryAuthError(Exception):
+    """Raised when the library login did not produce a user token."""
+
+
 # Re-exported so existing imports (``from .library_api import libraryLoan``)
 # and the public ``REQUEST_TIMEOUT`` constant keep working.
 __all__ = [
     "DETAILS_CACHE_MAX",
     "REQUEST_TIMEOUT",
     "Library",
+    "LibraryAuthError",
     "libraryDebt",
     "libraryLoan",
     "libraryMaterial",
@@ -98,6 +104,15 @@ class Library:
             f"Updating {self.use_eReolen}, {self.get_loans}, "
             f"{self.get_reservations}, {self.get_depts}"
         )
+
+        # A missing user token means login failed (bad credentials, blocked
+        # account, ...). Fail loudly so the coordinator marks the entities
+        # unavailable instead of silently serving stale data (plan 7.1). The
+        # user_token property performs the login/refresh itself when needed.
+        if not self._transport.user_token:
+            raise LibraryAuthError(
+                f"Login failed for {self.user.date} (check user id and pincode)"
+            )
 
         # Fetch the profile on the first poll and then at most once a day, so
         # changes such as branch, address or notification settings propagate.
@@ -269,7 +284,7 @@ class Library:
                 )
                 self.libraryName = self._branchName(data["preferredPickupBranch"])
                 return True
-            except (AttributeError, KeyError) as err:
+            except (AttributeError, KeyError, TypeError, ValueError) as err:
                 _LOGGER.error(f"Error getting user info {self.user.date}. Error: {err}")
         else:
             _LOGGER.warning(
@@ -285,22 +300,29 @@ class Library:
             physical = []
             physical_overdue = []
             for material in res.json():
-                id = material["loanDetails"]["recordId"]
-                # A failed details lookup returns {}; keep the loan anyway (the
-                # dates below come from the loans API) so a transient details
-                # error does not hide an outstanding loan.
-                obj = libraryLoan(self._getDetails(id))
+                try:
+                    id = material["loanDetails"]["recordId"]
+                    # A failed details lookup returns {}; keep the loan anyway (the
+                    # dates below come from the loans API) so a transient details
+                    # error does not hide an outstanding loan.
+                    obj = libraryLoan(self._getDetails(id))
 
-                # Renewable
-                obj.renewId = material["loanDetails"]["loanId"]
-                obj.renewAble = material["isRenewable"]
-                obj.loanDate = parser.parse(
-                    material["loanDetails"]["loanDate"], ignoretz=True
-                )
-                obj.expireDate = parser.parse(
-                    material["loanDetails"]["dueDate"], ignoretz=True
-                ) + timedelta(hours=23, minutes=59)
-                obj.id = material["loanDetails"]["materialItemNumber"]
+                    # Renewable
+                    obj.renewId = material["loanDetails"]["loanId"]
+                    obj.renewAble = material["isRenewable"]
+                    obj.loanDate = parser.parse(
+                        material["loanDetails"]["loanDate"], ignoretz=True
+                    )
+                    obj.expireDate = parser.parse(
+                        material["loanDetails"]["dueDate"], ignoretz=True
+                    ) + timedelta(hours=23, minutes=59)
+                    obj.id = material["loanDetails"]["materialItemNumber"]
+                except Exception as err:
+                    # One malformed entry must not abort the whole refresh.
+                    _LOGGER.warning(
+                        f"({self.user.date}) Skipping malformed loan entry: {err}"
+                    )
+                    continue
                 if obj.expireDate < datetime.now():
                     physical_overdue.append(obj)
                 else:
@@ -317,26 +339,39 @@ class Library:
             if res.status_code == 200:
                 edata = res.json()
 
-                self.user.eBooks = edata["userData"]["totalEbookLoans"]
-                self.user.eBooksQuota = edata["libraryData"][
-                    "maxConcurrentEbookLoansPerBorrower"
-                ]
-                self.user.audioBooks = edata["userData"]["totalAudioLoans"]
-                self.user.audioBooksQuota = edata["libraryData"][
-                    "maxConcurrentAudiobookLoansPerBorrower"
-                ]
+                try:
+                    self.user.eBooks = edata["userData"]["totalEbookLoans"]
+                    self.user.eBooksQuota = edata["libraryData"][
+                        "maxConcurrentEbookLoansPerBorrower"
+                    ]
+                    self.user.audioBooks = edata["userData"]["totalAudioLoans"]
+                    self.user.audioBooksQuota = edata["libraryData"][
+                        "maxConcurrentAudiobookLoansPerBorrower"
+                    ]
+                except (KeyError, TypeError) as err:
+                    _LOGGER.warning(
+                        f"({self.user.date}) Unexpected eReolen loans payload: {err}"
+                    )
 
                 ereloans = []
-                for material in edata["loans"]:
-                    id = material["libraryBook"]["identifier"]
+                for material in edata.get("loans") or []:
+                    try:
+                        id = material["libraryBook"]["identifier"]
+                    except (KeyError, TypeError) as err:
+                        _LOGGER.warning(
+                            f"({self.user.date}) Skipping malformed eReolen loan entry: {err}"
+                        )
+                        continue
                     res2 = self._get(
                         f"{URL_PUBHUB_BASE}/products/{id}", headers=self.json_header
                     )
-                    if res2.status_code == 200:
-                        data = res2.json()["product"]
-                        obj = libraryLoan(data)
-
-                        # Details
+                    if res2.status_code != 200:
+                        _LOGGER.warning(
+                            f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
+                        )
+                        continue
+                    try:
+                        obj = libraryLoan(res2.json()["product"])
                         obj.id = id
                         obj.loanDate = parser.parse(
                             material["orderDateUtc"], ignoretz=True
@@ -344,11 +379,12 @@ class Library:
                         obj.expireDate = parser.parse(
                             material["loanExpireDateUtc"], ignoretz=True
                         )
-                        ereloans.append(obj)
-                    else:
+                    except Exception as err:
                         _LOGGER.warning(
-                            f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
+                            f"({self.user.date}) Skipping malformed eReolen product '{id}': {err}"
                         )
+                        continue
+                    ereloans.append(obj)
                 self._loans["ereolen"] = ereloans
             else:
                 _LOGGER.warning(
@@ -376,10 +412,11 @@ class Library:
     # on success, otherwise the API's denial reason (e.g. "deniedReserved").
     def renewLoans(self, loan_ids):
         # The endpoint expects a bare JSON array of loan ids, e.g. ``[123]``.
+        requested = [int(loan_id) for loan_id in loan_ids]
         res = self._post(
             URL_LOANS_RENEW,
             headers=self.json_header,
-            json=[int(loan_id) for loan_id in loan_ids],
+            json=requested,
         )
         if res.status_code != 200:
             # Errors come back as {"errorCode": ..., "message": ...}, but a
@@ -394,7 +431,9 @@ class Library:
                 f"{f', {detail}' if detail else ''})"
             )
             return {}
-        status = {}
+        # Seed with every requested id so an id missing from the reply shows
+        # up as None ("no answer") instead of silently vanishing.
+        status = dict.fromkeys(requested)
         for item in res.json():
             loan_id = (item.get("loanDetails") or {}).get("loanId")
             renewal = item.get("renewalStatus") or []
@@ -412,22 +451,29 @@ class Library:
             physical = []
             physical_ready = []
             for material in materials.values():
-                id = material["recordId"]
-                # A failed details lookup returns {}; keep the reservation anyway
-                # (its dates and queue number come from the reservations API) so
-                # a transient details error does not hide an outstanding item.
-                data = self._getDetails(id)
-                if material["state"] == "readyForPickup":
-                    obj = libraryReservationReady(data)
-                else:
-                    obj = libraryReservation(data)
+                try:
+                    id = material["recordId"]
+                    # A failed details lookup returns {}; keep the reservation anyway
+                    # (its dates and queue number come from the reservations API) so
+                    # a transient details error does not hide an outstanding item.
+                    data = self._getDetails(id)
+                    if material["state"] == "readyForPickup":
+                        obj = libraryReservationReady(data)
+                    else:
+                        obj = libraryReservation(data)
 
-                # Details
-                obj.id = id
-                obj.createdDate = parser.parse(
-                    material["dateOfReservation"], ignoretz=True
-                )
-                obj.pickupLibrary = self._branchName(material["pickupBranch"])
+                    # Details
+                    obj.id = id
+                    obj.createdDate = parser.parse(
+                        material["dateOfReservation"], ignoretz=True
+                    )
+                    obj.pickupLibrary = self._branchName(material["pickupBranch"])
+                except Exception as err:
+                    # One malformed entry must not abort the whole refresh.
+                    _LOGGER.warning(
+                        f"({self.user.date}) Skipping malformed reservation entry: {err}"
+                    )
+                    continue
                 if material["state"] == "readyForPickup":
                     obj.reservationNumber = material["pickupNumber"]
                     obj.pickupDate = parser.parse(
@@ -453,12 +499,23 @@ class Library:
             if res.status_code == 200:
                 edata = res.json()
                 erereservations = []
-                for material in edata["reservations"]:
-                    id = material["identifier"]
+                for material in edata.get("reservations") or []:
+                    try:
+                        id = material["identifier"]
+                    except (KeyError, TypeError) as err:
+                        _LOGGER.warning(
+                            f"({self.user.date}) Skipping malformed eReolen reservation entry: {err}"
+                        )
+                        continue
                     res2 = self._get(
                         f"{URL_PUBHUB_BASE}/products/{id}", headers=self.json_header
                     )
-                    if res2.status_code == 200:
+                    if res2.status_code != 200:
+                        _LOGGER.warning(
+                            f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
+                        )
+                        continue
+                    try:
                         data = res2.json()["product"]
 
                         obj = libraryReservation(data)
@@ -473,11 +530,12 @@ class Library:
                             material["createdDateUtc"], ignoretz=True
                         )
                         obj.pickupLibrary = "ereolen.dk"
-                        erereservations.append(obj)
-                    else:
+                    except Exception as err:
                         _LOGGER.warning(
-                            f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
+                            f"({self.user.date}) Skipping malformed eReolen reservation '{id}': {err}"
                         )
+                        continue
+                    erereservations.append(obj)
                 self._reservations["ereolen"] = erereservations
             else:
                 _LOGGER.warning(
@@ -503,17 +561,26 @@ class Library:
         if res.status_code == 200:
             js = res.json()
             for debt in js:
-                # A fee may have no materials attached (e.g. a service fee); keep
-                # the amount but leave the material fields empty.
-                materials = debt.get("materials") or []
-                data = self._getDetails(materials[0]["recordId"]) if materials else {}
-                obj = libraryDebt(data)
+                try:
+                    # A fee may have no materials attached (e.g. a service fee); keep
+                    # the amount but leave the material fields empty.
+                    materials = debt.get("materials") or []
+                    data = (
+                        self._getDetails(materials[0]["recordId"]) if materials else {}
+                    )
+                    obj = libraryDebt(data)
 
-                obj.feeDate = parser.parse(debt["creationDate"], ignoretz=True)
-                if debt.get("dueDate"):
-                    obj.feeDueDate = parser.parse(debt["dueDate"], ignoretz=True)
-                obj.feeAmount = debt["amount"]
-                obj.feeType = debt.get("type")
+                    obj.feeDate = parser.parse(debt["creationDate"], ignoretz=True)
+                    if debt.get("dueDate"):
+                        obj.feeDueDate = parser.parse(debt["dueDate"], ignoretz=True)
+                    obj.feeAmount = debt["amount"]
+                    obj.feeType = debt.get("type")
+                except Exception as err:
+                    # One malformed fee must not abort the whole refresh.
+                    _LOGGER.warning(
+                        f"({self.user.date}) Skipping malformed fee entry: {err}"
+                    )
+                    continue
                 debts.append(obj)
         else:
             _LOGGER.warning(
