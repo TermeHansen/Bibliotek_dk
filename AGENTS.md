@@ -159,8 +159,8 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   The silent-auth-failure issue (plan 7.1) is fixed as of 0.8.1: a token response
   without a user token clears the stale token, `update()` raises
   `LibraryAuthError`, and `sensor.py` maps it to `UpdateFailed` so the sensors go
-  unavailable — but the login-failure path still needs a manual check against a
-  real account.
+  unavailable — the wrong-PIN path and the token-expiry re-login were verified
+  against two real accounts on 2026-10-24.
 - **Known open findings are tracked in `IMPROVEMENT_PLAN.md` Section 7** (from
   the 2026-10-23 full review; 7.1/7.2/7.4/7.5/7.6 fixed in 0.8.1). Read it
   before changing the fetchers: eReolen products are fetched one request per
@@ -188,3 +188,6 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 - Don't touch `dashboard.yaml` / `loans_card.yaml` unless the task is about the
   sample dashboards.
 - Never commit real CPR numbers, PIN codes, tokens, or captured API responses.
+- The gitignored `secrets` file at the repo root holds real test credentials
+  (`user_id pin` per line) for manual real-data runs; it must stay ignored and
+  its contents must never be printed or committed.

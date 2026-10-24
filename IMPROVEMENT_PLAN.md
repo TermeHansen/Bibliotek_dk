@@ -210,9 +210,10 @@ logged nothing, `login()` still returned truthy, and `Library.update()` returned
 available, and every sensor showed stale data indefinitely. Fixed by clearing
 the stale token in `_set_tokens`, raising `LibraryAuthError` from `update()`
 when no user token is available, and mapping it to `UpdateFailed` in
-`sensor.async_setup_entry` so the sensors go unavailable. **The login-failure
-path still needs one manual check against a real account** (token area — see
-AGENTS.md).
+`sensor.async_setup_entry` so the sensors go unavailable. **Verified against
+two real accounts 2026-10-24**: a deliberately wrong PIN raises
+`LibraryAuthError` and clears the stale token on both, and the token-expiry
+re-login path fetches fresh data transparently.
 
 ### 7.2 One malformed item aborts the whole refresh — MEDIUM — DONE (0.8.1)
 

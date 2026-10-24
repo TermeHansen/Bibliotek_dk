@@ -9,8 +9,9 @@
 * A failed login (wrong PIN, changed PIN, blocked account) now marks the
   sensors **unavailable** instead of silently serving stale data. Previously a
   token response without a user token went unnoticed and every sensor kept its
-  old values indefinitely. The failed-login path needs a manual check against a
-  real account (see `IMPROVEMENT_PLAN.md` 7.1).
+  old values indefinitely. The wrong-PIN path and the token-expiry re-login
+  were verified against two real accounts on 2026-10-24 (see
+  `IMPROVEMENT_PLAN.md` 7.1).
 * One malformed loan/reservation/fee entry no longer aborts the whole refresh —
   the entry is skipped with a warning and the rest of the data still updates.
 * eReolen creator names are now joined with spaces ("Jussi Adler-Olsen", was
