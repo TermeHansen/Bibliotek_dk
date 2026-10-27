@@ -175,10 +175,11 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 - **The remote branches `cleanup`, `new_API`, `no_ereol` are NOT merged** (3 /
   19 / 6 unique commits ahead of `improvements2`); diff them against the
   current code before deleting anything (plan Section 5).
-- **The repo is still a GitHub fork** of `J-Lindvig/Bibliotek_dk` (upstream
-  inactive since 2024-03, not archived; detach requested via GitHub support
-  2026-10-23). Don't add an `upstream` remote or sync from it; attribution is
-  the README Credits section, `CREDITS` in `const.py`, and `codeowners` in
+- **The repo is standalone** — detached from the `J-Lindvig/Bibliotek_dk` fork
+  network by GitHub support on 2026-10-27 (stars, issues, releases and history
+  preserved; the three child forks re-parented to this repo, so it now heads
+  its own small network). Attribution to the original author stays in the
+  README Credits section, `CREDITS` in `const.py`, and `codeowners` in
   `manifest.json`.
 
 ## Scope discipline

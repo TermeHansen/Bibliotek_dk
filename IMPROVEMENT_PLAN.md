@@ -165,12 +165,14 @@ script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
   deleting, and settle the fork detach first (see below): the
   delete-and-recreate detach path would not preserve them, the support-ticket
   path does.
-- **Fork detach:** `TermeHansen/Bibliotek_dk` is still a fork of
-  `J-Lindvig/Bibliotek_dk` (upstream inactive since 2024-03, not archived) and
-  has 3 child forks, so the one-click "Leave fork network" button is
-  unavailable; a GitHub support ticket (support.github.com/request/fork) is the
-  non-destructive route and was drafted 2026-10-23. README credits for the
-  original author added 2026-10-23. — In progress.
+- **Fork detach:** `TermeHansen/Bibliotek_dk` was a fork of
+  `J-Lindvig/Bibliotek_dk` (upstream inactive since 2024-03, not archived) with
+  3 child forks, so the one-click "Leave fork network" button was unavailable;
+  a GitHub support ticket was drafted 2026-10-23. README credits for the
+  original author added 2026-10-23. — **DONE (2026-10-27):** GitHub support
+  detached the repo; `fork` is now `false`, stars/issues/releases/history
+  preserved, the three child forks re-parented to this repo. The post-detach
+  `codeowners`/`CREDITS` decision is now unblocked (see Suggested order).
 
 ---
 
