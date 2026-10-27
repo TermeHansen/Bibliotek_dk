@@ -1,4 +1,8 @@
 # Byte-compiled / optimized / DLL files
+# Local secrets (real logins for manual testing) — never commit these.
+secrets
+secrets.*
+*.secrets
 __pycache__/
 *.py[cod]
 *$py.class

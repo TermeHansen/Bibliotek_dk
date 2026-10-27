@@ -57,9 +57,25 @@ def test_physical_material_url_missing_owner_work():
 def test_ereolen_material_url_from_isbn():
     mat = libraryMaterial(_ereolen_product(isbn="9788740003826"))
     assert mat.title == "Kvinden i buret"
-    assert mat.creators == "JussiAdler-Olsen"
+    assert mat.creators == "Jussi Adler-Olsen"
     assert mat.type == "epub"
     assert mat.url == "https://bibliotek.dk/?q=9788740003826"
+
+
+def test_ereolen_creators_handle_missing_parts():
+    # Regression (plan 7.4): firstName and lastName were concatenated without a
+    # separator and a missing key raised inside the guarded block, blanking the
+    # whole material.
+    data = _ereolen_product()
+    data["contributors"] = [{"firstName": "Jussi"}, {"lastName": "Olsen"}]
+    # Two contributors are joined the Danish way; parts of one name by a space.
+    assert libraryMaterial(data).creators == "Jussi og Olsen"
+
+    data["contributors"] = []
+    assert libraryMaterial(data).creators is None
+
+    del data["contributors"]
+    assert libraryMaterial(data).creators is None
 
 
 def test_ereolen_material_url_missing_isbn():

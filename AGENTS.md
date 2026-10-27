@@ -25,32 +25,44 @@ custom_components/bibliotek_dk/
 ├── models.py          # libraryUser + libraryMaterial/Loan/Reservation/Debt holders
 ├── library_api.py     # Library facade: update(), fetch* methods, caches
 ├── sensor.py          # DataUpdateCoordinator + the sensor entities
+├── diagnostics.py     # async_get_config_entry_diagnostics (credentials redacted)
+├── services.yaml      # bibliotek_dk.renew_loans service schema
 ├── manifest.json      # version, requirements, codeowners
 ├── strings.json       # translation source (HA requires this to mirror translations/)
 └── translations/{en,da}.json
 dashboard.yaml         # sample Lovelace dashboard (markdown templates)
-loans_card.yaml        # sample auto-entities card
+loans_card.yaml        # drop-in auto-entities card (self-discovers the sensor)
+loans_card_decluttering.yaml  # reusable decluttering-card template
 tests/                 # pytest suite; conftest.py stubs homeassistant (no HA needed)
 ```
 
 ## Commands
 
-Environment is conda/micromamba (`environment.yaml`). The test suite stubs the
-`homeassistant` package (`tests/conftest.py`), so it runs **without a Home
-Assistant install**.
+Dependencies are managed with **uv** (`pyproject.toml` is the source of truth,
+`uv.lock` is committed, CI runs `uv sync --group dev --locked`). The test suite
+stubs the `homeassistant` package (`tests/conftest.py`), so it runs **without a
+Home Assistant install**.
 
 ```bash
+# One-time setup (creates .venv from uv.lock)
+uv sync --group dev
+
 # Lint (this is what CI runs; must pass)
-ruff check --config pyproject.toml
-ruff format --check custom_components tests   # CI also enforces formatting
+uv run ruff check --config pyproject.toml
+uv run ruff format --check custom_components tests   # CI also enforces formatting
 
 # Tests (no HA needed; run in both timezones like CI does)
-TZ=Europe/Copenhagen pytest tests --disable-warnings
-TZ=UTC pytest tests --disable-warnings
+TZ=Europe/Copenhagen uv run pytest tests --disable-warnings
+TZ=UTC uv run pytest tests --disable-warnings
 
-# Create the dev environment
-micromamba create -f environment.yaml     # or: conda env create -f environment.yaml
+# After changing a dependency
+uv lock && uv sync --group dev
 ```
+
+If pytest dies with `ModuleNotFoundError` (`dateutil`, `bs4`, `voluptuous`),
+you are outside the uv venv — use `uv run` or `uv sync` first, not the bare
+system python. A conda route still works locally (`environment.yaml` mirrors
+the same dependency set for conda users), but CI and the docs above use uv.
 
 CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 **HACS** validation; `python-testing.yml` runs Ruff and pytest. All must pass.
@@ -109,7 +121,23 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 - **`sensor.py` honors the show/hide options** when creating entities (0.7.0).
   All sensors derive from `BibliotekBaseSensor` (coordinator wiring) and the
   count sensors from `BibliotekCountSensor`; a new count sensor only needs
-  `_items`, `_item_attrs`, the icon variants and its name/prefix.
+  `_items`, `_item_attrs`, the icon variants and its name/prefix. Every sensor
+  is grouped under one HA device per config entry (`_attr_device_info` is set in
+  `async_setup_entry`, keyed on `entry.entry_id`).
+- **The `renew_loans` service is registered globally** in `__init__.py` (one
+  handler for all entries, keyed by `config_entry_id`) and removed when the last
+  entry unloads. It is registered with `supports_response=OPTIONAL` so
+  automations can read the per-loan status back. It calls `Library.renewLoans()`,
+  which POSTs a *bare JSON array* of loan ids to `URL_LOANS_RENEW` (the DBC API
+  rejects a `{"data": [...]}` wrapper) and maps the response to
+  `{loanId: renewalStatus}`. The handler raises `HomeAssistantError` when nothing
+  renewed, and on success asks the entry's coordinator (`library.coordinator`,
+  set in `sensor.async_setup_entry`) for a refresh — it does **not** reload the
+  entry, which would rebuild the `Library` and drop the last-good results kept
+  for API outages. `renew_id` on the loan sensor attributes is the API `loanId`.
+- **`diagnostics.py` redacts `CONF_USER_ID`, `CONF_PINCODE`, `CONF_NAME` and the
+  patron `name` key** via `async_redact_data`; keep any new credential or
+  identity keys in its `TO_REDACT` set.
 - **`libraryMaterial.url` and `libraryDebt.feeType` are populated** from the
   API payloads (`ownerWork.workId` → bibliotek.dk work URL; eReolen ISBN →
   bibliotek.dk search; `debt["type"]` → fee type). Keep these in sync if the DBC
@@ -128,6 +156,31 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   that's intentional, not a placeholder to fill in.
 - **Token expiry / auth is the most fragile area** (see recent commits). Changes
   there need manual testing against a real account; there is no automated coverage.
+  The silent-auth-failure issue (plan 7.1) is fixed as of 0.8.1: a token response
+  without a user token clears the stale token, `update()` raises
+  `LibraryAuthError`, and `sensor.py` maps it to `UpdateFailed` so the sensors go
+  unavailable — the wrong-PIN path and the token-expiry re-login were verified
+  against two real accounts on 2026-10-24.
+- **Known open findings are tracked in `IMPROVEMENT_PLAN.md` Section 7** (from
+  the 2026-10-23 full review; 7.1/7.2/7.4/7.5/7.6 fixed in 0.8.1). Read it
+  before changing the fetchers: eReolen products are fetched one request per
+  item per poll with no cache (7.3), and the `_getDetails` fallback host is
+  suspect (7.9).
+- **`_getDetails` falls back to a staging host** (`temp.fbi-api.dbc.dk`) when
+  the scraped `data-fbi-global-base-url` is missing; treat that fallback as
+  suspect (plan 7.9).
+- **`renew_id` is exposed only on the loans sensor**, not the overdue sensor —
+  overdue items are the same loans, so the id is available if a future renew UX
+  needs it.
+- **The remote branches `cleanup`, `new_API`, `no_ereol` are NOT merged** (3 /
+  19 / 6 unique commits ahead of `improvements2`); diff them against the
+  current code before deleting anything (plan Section 5).
+- **The repo is standalone** — detached from the `J-Lindvig/Bibliotek_dk` fork
+  network by GitHub support on 2026-10-27 (stars, issues, releases and history
+  preserved; the three child forks re-parented to this repo, so it now heads
+  its own small network). Attribution to the original author stays in the
+  README Credits section, `CREDITS` in `const.py`, and `codeowners` in
+  `manifest.json`.
 
 ## Scope discipline
 
@@ -136,3 +189,6 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
 - Don't touch `dashboard.yaml` / `loans_card.yaml` unless the task is about the
   sample dashboards.
 - Never commit real CPR numbers, PIN codes, tokens, or captured API responses.
+- The gitignored `secrets` file at the repo root holds real test credentials
+  (`user_id pin` per line) for manual real-data runs; it must stay ignored and
+  its contents must never be printed or committed.

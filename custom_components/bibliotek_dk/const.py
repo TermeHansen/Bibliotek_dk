@@ -1,5 +1,6 @@
 CONF_AGENCY = "agency"
 CONF_BRANCH_ID = "branchId"
+CONF_CONFIG_ENTRY_ID = "config_entry_id"
 CONF_HOST = "host"
 CONF_MUNICIPALITY = "municipality"
 CONF_NAME = "name"
@@ -40,6 +41,23 @@ UPDATE_INTERVAL = 60
 URL_FALLBACK = "https://bibliotek.kk.dk"
 URL_LOGIN = "/login"
 URL_LOGIN_PAGE = "/login?current-path=/user/me/dashboard"
+
+# DBC open-platform endpoints (agencyid/patronid are literal placeholders the
+# gateway resolves from the bearer token).
+URL_FBS_BASE = "https://fbs-openplatform.dbc.dk"
+URL_PATRON = f"{URL_FBS_BASE}/external/agencyid/patrons/patronid/v4"
+URL_LOANS = f"{URL_FBS_BASE}/external/agencyid/patrons/patronid/loans/v2"
+URL_LOANS_RENEW = f"{URL_FBS_BASE}/external/agencyid/patrons/patronid/loans/renew/v2"
+URL_RESERVATIONS = (
+    f"{URL_FBS_BASE}/external/v1/agencyid/patrons/patronid/reservations/v2"
+)
+URL_FEES = f"{URL_FBS_BASE}/external/agencyid/patron/patronid/fees/v2"
+URL_PUBHUB_BASE = "https://pubhub-openplatform.dbc.dk/v1"
+URL_BRANCH_GRAPHQL = "https://bibliotek.dk/api/bibdk21/graphql"
+
+# HA service to renew one or more physical loans.
+SERVICE_RENEW_LOANS = "renew_loans"
+ATTR_LOAN_IDS = "loan_ids"
 
 
 details_query = """

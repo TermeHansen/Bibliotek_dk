@@ -48,6 +48,8 @@ class FakeSetupCoordinator:
 
     def __init__(self, *args, **kwargs):
         self.last_update_success = True
+        # The real coordinator exposes the update callable it was given.
+        self.update_method = kwargs.get("update_method")
 
     async def async_request_refresh(self):
         return None
@@ -59,6 +61,7 @@ class FakeSetupCoordinator:
 class FakeEntry:
     def __init__(self, data):
         self.entry_id = "entry1"
+        self.title = "Test Library"
         self.data = data
         self.options = {}
 
@@ -156,6 +159,28 @@ def test_debt_sensor_sums_amounts():
     assert sensor.extra_state_attributes["debts"][0]["fee_type"] == "overdue"
 
 
+def test_debt_sensor_is_monetary():
+    from decimal import Decimal
+
+    lib = _library()
+    lib.user.debts = []
+    lib.user.debtsAmount = 12.5
+    sensor = DebtSensor(lib.user, FakeCoordinator())
+    assert sensor._attr_device_class == "monetary"
+    assert sensor._attr_native_unit_of_measurement == "DKK"
+    assert sensor._attr_state_class == "total"
+    assert sensor.native_value == Decimal("12.5")
+
+
+def test_loan_sensor_exposes_renew_id():
+    lib = _library()
+    loan = _loan("A", dt.datetime(2026, 1, 1))
+    loan.renewId = 42
+    lib.user.loans = [loan]
+    sensor = LoanSensor(lib.user, FakeCoordinator())
+    assert sensor.extra_state_attributes["loans"][0]["renew_id"] == 42
+
+
 def test_reservation_sensor_state():
     lib = _library()
     res = libraryReservation.__new__(libraryReservation)
@@ -191,17 +216,22 @@ async def _setup(monkeypatch, **overrides):
     def fake_add(entities):
         captured["entities"] = entities
 
-    monkeypatch.setattr(sensor_module, "DataUpdateCoordinator", FakeSetupCoordinator)
+    def fake_coordinator(*args, **kwargs):
+        coordinator = FakeSetupCoordinator(*args, **kwargs)
+        captured["coordinator"] = coordinator
+        return coordinator
+
+    monkeypatch.setattr(sensor_module, "DataUpdateCoordinator", fake_coordinator)
     lib = _library()
     hass = FakeSetupHass(lib)
     entry = FakeEntry(_entry_data(**overrides))
     await sensor_module.async_setup_entry(hass, entry, fake_add)
-    return captured.get("entities", [])
+    return captured.get("entities", []), captured.get("coordinator")
 
 
 @pytest.mark.asyncio
 async def test_setup_creates_all_sensors_when_enabled(monkeypatch):
-    entities = await _setup(monkeypatch)
+    entities, _ = await _setup(monkeypatch)
     types = {type(e).__name__ for e in entities}
     assert types == {
         "LibrarySensor",
@@ -214,9 +244,20 @@ async def test_setup_creates_all_sensors_when_enabled(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_setup_groups_sensors_under_one_device(monkeypatch):
+    entities, _ = await _setup(monkeypatch)
+    infos = [e._attr_device_info for e in entities]
+    assert all(info is not None for info in infos)
+    # One device per config entry: identical identifiers on every sensor.
+    assert len({tuple(info["identifiers"]) for info in infos}) == 1
+    assert ("bibliotek_dk", "entry1") in infos[0]["identifiers"]
+    assert infos[0]["name"] == "Test Library"
+
+
+@pytest.mark.asyncio
 async def test_setup_hides_disabled_sensor_groups(monkeypatch):
     # Regression: these gates were `if True`, so the options did nothing.
-    entities = await _setup(
+    entities, _ = await _setup(
         monkeypatch,
         **{
             CONF_SHOW_LOANS: False,
@@ -231,7 +272,7 @@ async def test_setup_hides_disabled_sensor_groups(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_setup_only_loans_enabled(monkeypatch):
-    entities = await _setup(
+    entities, _ = await _setup(
         monkeypatch,
         **{CONF_SHOW_DEBTS: False, CONF_SHOW_RESERVATIONS: False},
     )
@@ -242,3 +283,30 @@ async def test_setup_only_loans_enabled(monkeypatch):
         isinstance(e, (DebtSensor, ReservationSensor, ReservationReadySensor))
         for e in entities
     )
+
+
+@pytest.mark.asyncio
+async def test_setup_maps_auth_failure_to_update_failed(monkeypatch):
+    # Regression (plan 7.1): a failed login must surface as UpdateFailed so the
+    # coordinator marks the sensors unavailable instead of serving stale data.
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    from custom_components.bibliotek_dk.library_api import LibraryAuthError
+
+    entities, coordinator = await _setup(monkeypatch)
+    assert entities
+
+    def failing_update(self):
+        raise LibraryAuthError("Login failed for 1234")
+
+    monkeypatch.setattr(Library, "update", failing_update)
+    with pytest.raises(UpdateFailed):
+        await coordinator.update_method()
+
+    # Any other error must pass through unchanged, not be swallowed.
+    def other_update(self):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(Library, "update", other_update)
+    with pytest.raises(RuntimeError):
+        await coordinator.update_method()

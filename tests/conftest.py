@@ -40,7 +40,25 @@ if "homeassistant" not in sys.modules:
     config_entries.OptionsFlow = OptionsFlow
 
     core = types.ModuleType("homeassistant.core")
-    core.HomeAssistant = object
+
+    class HomeAssistant:
+        """Fake HomeAssistant base."""
+
+    class ServiceCall:
+        """Fake ServiceCall carrying a data dict."""
+
+        def __init__(self, data=None):
+            self.data = data or {}
+
+    class SupportsResponse:
+        """Fake SupportsResponse enum."""
+
+        ONLY = "only"
+        OPTIONAL = "optional"
+
+    core.HomeAssistant = HomeAssistant
+    core.ServiceCall = ServiceCall
+    core.SupportsResponse = SupportsResponse
     core.callback = lambda func: func
 
     data_entry_flow = types.ModuleType("homeassistant.data_entry_flow")
@@ -63,9 +81,41 @@ if "homeassistant" not in sys.modules:
     class SensorEntity:
         """Fake SensorEntity base."""
 
+    class SensorDeviceClass:
+        """Fake SensorDeviceClass enum."""
+
+        MONETARY = "monetary"
+
+    class SensorStateClass:
+        """Fake SensorStateClass enum."""
+
+        TOTAL = "total"
+
     sensor_mod = types.ModuleType("homeassistant.components.sensor")
     sensor_mod.SensorEntity = SensorEntity
+    sensor_mod.SensorDeviceClass = SensorDeviceClass
+    sensor_mod.SensorStateClass = SensorStateClass
     components.sensor = sensor_mod
+
+    # homeassistant.components.diagnostics
+    def async_redact_data(data, to_redact):
+        """Recursively replace values of keys in ``to_redact`` (mirrors HA)."""
+
+        def _redact(obj):
+            if isinstance(obj, dict):
+                return {
+                    key: ("**REDACTED**" if key in to_redact else _redact(value))
+                    for key, value in obj.items()
+                }
+            if isinstance(obj, list):
+                return [_redact(item) for item in obj]
+            return obj
+
+        return _redact(data)
+
+    diagnostics_mod = types.ModuleType("homeassistant.components.diagnostics")
+    diagnostics_mod.async_redact_data = async_redact_data
+    components.diagnostics = diagnostics_mod
 
     # homeassistant.helpers.*
     helpers = types.ModuleType("homeassistant.helpers")
@@ -98,8 +148,46 @@ if "homeassistant" not in sys.modules:
     entity_platform.AddEntitiesCallback = object
     helpers.entity_platform = entity_platform
 
+    # homeassistant.helpers.device_registry
+    class DeviceEntryType:
+        """Fake DeviceEntryType enum."""
+
+        SERVICE = "service"
+
+    class DeviceInfo(dict):
+        """Fake DeviceInfo accepting the documented kwargs as a dict."""
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+
+    device_registry = types.ModuleType("homeassistant.helpers.device_registry")
+    device_registry.DeviceEntryType = DeviceEntryType
+    device_registry.DeviceInfo = DeviceInfo
+    helpers.device_registry = device_registry
+
+    # homeassistant.helpers.service
+    class ServiceCall:
+        """Fake ServiceCall with a data mapping."""
+
+        def __init__(self, data=None):
+            self.data = data or {}
+
+    service = types.ModuleType("homeassistant.helpers.service")
+    service.ServiceCall = ServiceCall
+    helpers.service = service
+
+    # homeassistant.helpers.typing
+    typing_mod = types.ModuleType("homeassistant.helpers.typing")
+    typing_mod.ServiceCall = ServiceCall
+    helpers.typing = typing_mod
+
     update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
     update_coordinator.DataUpdateCoordinator = object
+
+    class UpdateFailed(Exception):
+        """Fake UpdateFailed raised when a coordinator update fails."""
+
+    update_coordinator.UpdateFailed = UpdateFailed
     helpers.update_coordinator = update_coordinator
 
     homeassistant.helpers = helpers
@@ -118,7 +206,11 @@ if "homeassistant" not in sys.modules:
     sys.modules["homeassistant.const"] = homeassistant.const
     sys.modules["homeassistant.components"] = components
     sys.modules["homeassistant.components.sensor"] = sensor_mod
+    sys.modules["homeassistant.components.diagnostics"] = diagnostics_mod
     sys.modules["homeassistant.helpers"] = helpers
     sys.modules["homeassistant.helpers.selector"] = selector
     sys.modules["homeassistant.helpers.entity_platform"] = entity_platform
     sys.modules["homeassistant.helpers.update_coordinator"] = update_coordinator
+    sys.modules["homeassistant.helpers.device_registry"] = device_registry
+    sys.modules["homeassistant.helpers.service"] = service
+    sys.modules["homeassistant.helpers.typing"] = typing_mod

@@ -36,7 +36,6 @@ class LibraryTransport:
         self._json_header["Referer"] = host
         self._user_token = ""
         self._user_token_exp = None
-        self._library_token = ""
         self.loggedIn = ""
 
     # PRIVATE BEGIN ####
@@ -118,16 +117,30 @@ class LibraryTransport:
 
     def _set_tokens(self):
         res = self._get(f"{self.host}/dpl-react/user-tokens")
-        if res.status_code == 200:
-            self._library_token = res.text.split('"library"')[1].split('"')[1]
-            if '"user"' in res.text:
-                self.loggedIn = self.host + "/logout"
-                self._user_token = res.text.split('"user"')[1].split('"')[1]
-                self._user_token_exp = datetime.now() + timedelta(days=1)
-        else:
+        if res.status_code != 200:
             _LOGGER.warning(
                 f"({self.user.date}) Error fetching user tokens ({res.status_code})"
             )
+            return
+        # The endpoint returns a JSON object with a "library" token (always)
+        # and a "user" token (only once the patron is authenticated); we only
+        # use the latter.
+        if '"user"' in res.text:
+            self.loggedIn = self.host + "/logout"
+            self._user_token = res.text.split('"user"')[1].split('"')[1]
+            self._user_token_exp = datetime.now() + timedelta(days=1)
+            return
+        # A 200 without a user token means the patron is not authenticated
+        # (wrong credentials, blocked account, ...). Clear any stale token so
+        # callers never keep using one, and say so — this used to be silent,
+        # leaving the sensors available with stale data (plan 7.1).
+        self.loggedIn = ""
+        self._user_token = ""
+        self._user_token_exp = None
+        _LOGGER.warning(
+            f"({self.user.date}) Login did not yield a user token "
+            "(check user id and pincode)"
+        )
 
     @property
     def json_header(self):
@@ -144,17 +157,6 @@ class LibraryTransport:
             self.login()
             _LOGGER.debug(f"new user token {self._user_token_exp}")
         return self._user_token
-
-    @property
-    def library_token(self):
-        now = datetime.now()
-        if not self._user_token:
-            self.login()
-
-        if self._user_token_exp is not None and self._user_token_exp < now:
-            self.loggedIn = ""
-            self.login()
-        return self._library_token
 
     def logout(self):
         if self.loggedIn:

@@ -14,26 +14,27 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
-    - name: provision-with-micromamba
-      uses: mamba-org/setup-micromamba@v2
+    - name: Install uv
+      # Pinned to an exact tag: astral-sh/setup-uv stopped publishing moving
+      # major tags after v7.6, so `@v10` does not resolve.
+      uses: astral-sh/setup-uv@v10.3.2
       with:
-        environment-file: environment.yaml
-        environment-name: bibliotek_dk
-        cache-environment: true
+        python-version: "3.12"
+        enable-cache: true
+
+    - name: Install dependencies
+      run: uv sync --group dev --locked
 
     - name: Lint with Ruff
-      shell: bash -l {0}
       run: |
         # stop the build if there are Python syntax errors or undefined names
-        ruff check --config pyproject.toml
+        uv run ruff check --config pyproject.toml
 
     - name: Check formatting with Ruff
-      shell: bash -l {0}
       run: |
-        ruff format --check custom_components tests
+        uv run ruff format --check custom_components tests
 
     - name: Test with pytest
-      shell: bash -l {0}
       run: |
-        TZ=Europe/Copenhagen pytest tests --disable-warnings
-        TZ=UTC pytest tests --disable-warnings
+        TZ=Europe/Copenhagen uv run pytest tests --disable-warnings
+        TZ=UTC uv run pytest tests --disable-warnings

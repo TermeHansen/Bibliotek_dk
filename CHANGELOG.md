@@ -1,5 +1,53 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.8.1
+
+**Date**: `2026-10-24`
+
+### Changes
+
+* A failed login (wrong PIN, changed PIN, blocked account) now marks the
+  sensors **unavailable** instead of silently serving stale data. Previously a
+  token response without a user token went unnoticed and every sensor kept its
+  old values indefinitely. The wrong-PIN path and the token-expiry re-login
+  were verified against two real accounts on 2026-10-24 (see
+  `IMPROVEMENT_PLAN.md` 7.1).
+* One malformed loan/reservation/fee entry no longer aborts the whole refresh —
+  the entry is skipped with a warning and the rest of the data still updates.
+* eReolen creator names are now joined with spaces ("Jussi Adler-Olsen", was
+  "JussiAdler-Olsen") and missing name parts no longer blank the whole item.
+* The `renew_loans` response now includes every requested loan id — an id
+  missing from the API reply shows up as `None` instead of vanishing.
+* Unexpected values in the library profile (e.g. a missing SMS flag) no longer
+  fail the daily profile refresh.
+
+## Version 0.8.0
+
+**Date**: `2026-10-11`
+
+### Changes
+
+* New service `bibliotek_dk.renew_loans` to renew one or more physical loans.
+  Pass the `config_entry_id` and the `loan_ids` (the `renew_id` attribute on the
+  loans sensor); it returns the per-loan renewal status (usable from an
+  automation's `response_variable`). Invalid loan ids are rejected with a clear
+  error, and a successful renewal refreshes the sensors in place.
+* All sensors for an account are now grouped under a single Home Assistant
+  device (one device per config entry), instead of floating loose entities.
+* The debts sensor is now a proper monetary sensor: `device_class: monetary`,
+  `unit_of_measurement: DKK` and `state_class: total`, so it can be graphed and
+  formatted as currency.
+* Added diagnostics support (Settings → Devices & Services → the integration →
+  Download diagnostics). The account snapshot is included with the CPR/library
+  number, PIN and account/patron names redacted.
+* The loans sensor now exposes a `renew_id` attribute per loan, used by the
+  renew service.
+* `hacs.json` now declares a minimum Home Assistant version.
+* Removed dead code: the unused `library_token` property on the transport and
+  the facade.
+* Internal: the DBC open-platform endpoint URLs moved into `const.py` as named
+  constants.
+
 ## Version 0.7.0
 
 **Date**: `2026-10-10`
