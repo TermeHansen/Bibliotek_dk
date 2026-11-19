@@ -29,7 +29,11 @@ Read requests send the existing login.bib.dk user bearer token:
 Loan and reservation pagination follows the returned cursor. A failed or
 malformed page keeps the previous complete source list. Metadata failure
 keeps the reservation with its ISBN as a fallback title. Metadata is cached
-with a 500-entry bound. Physical library requests and renewal are unchanged.
+with a 500-entry bound. Malformed individual loans/reservations are skipped
+with a warning after every page has been fetched; valid items still update
+(see `IMPROVEMENT_PLAN.md`, section 7.2). Metadata is validated before caching;
+invalid responses are retried on the next lookup (section 3).
+Physical library requests and renewal are unchanged.
 
 ## Quotas and limitations
 

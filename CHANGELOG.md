@@ -6,6 +6,10 @@
 
 ### Changes
 
+* Skip malformed individual Biblo loans/reservations while publishing valid
+  items (IMPROVEMENT_PLAN.md section 7.2). Validate metadata before caching it
+  so malformed responses are retried (section 3).
+* Use masonry instead of sections in the example dashboard.
 * Update `dashboard.yaml` with Biblo status, renewal controls, corrected fee
   fields and explicit empty-list/unavailable-data messages.
 * Add `bibliotek_dk.renew_all_loans` to renew currently eligible physical

@@ -208,3 +208,64 @@ def test_disabled_digital_option_clears_new_provider_state_without_api_call():
     lib.fetchLoans()
     assert lib.user.loans == []
     assert lib._get.call_count == 1  # Only the physical API.
+
+
+@pytest.mark.parametrize("broken", [None, {}, {**loan(), "end": "not-a-date"}])
+def test_malformed_loan_does_not_discard_valid_loans(broken, caplog):
+    lib = library()
+    lib._get.return_value = response(
+        {"loans": [loan("before"), broken, loan("after")], "pagination": {}}
+    )
+    assert [item.id for item in lib._biblio.loans()] == ["before", "after"]
+    assert "Skipping malformed Biblo loan" in caplog.text
+
+
+@pytest.mark.parametrize("broken", [None, {}, {**loan(), "timestamp": "invalid"}])
+def test_malformed_reservation_does_not_discard_waiting_or_ready(broken, caplog):
+    lib = library()
+    waiting = {**loan(), "timestamp": "2026-11-17", "loan_date": "2026-12-01"}
+    ready = {
+        **waiting,
+        "id": "ready",
+        "offer_id": "offer",
+        "offer_expires_at": "2026-12-01",
+    }
+    lib._get.side_effect = [
+        response({"reservations": [waiting, broken, ready], "pagination": {}}),
+        response({"materials": []}),
+    ]
+    pending, offered = lib._biblio.reservations()
+    assert [item.id for item in pending] == ["loan-1"]
+    assert [item.id for item in offered] == ["ready"]
+    assert "Skipping malformed Biblo reservation" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "materials", [None, {}, [None], [{"isbn": "9780000000001", "author": [None]}]]
+)
+def test_malformed_metadata_is_retried_and_recovery_is_cached(materials):
+    lib = library()
+    item = {**loan(), "timestamp": "2026-11-17", "loan_date": "2026-12-01"}
+    page = response({"reservations": [item], "pagination": {}})
+    lib._get.side_effect = [
+        page,
+        response({"materials": materials}),
+        page,
+        response(
+            {
+                "materials": [
+                    {
+                        "isbn": item["material_id"],
+                        "title": "Recovered",
+                        "author": ["Author"],
+                    }
+                ]
+            }
+        ),
+        page,
+    ]
+    assert len(lib._biblio.reservations()[0]) == 1
+    assert not lib._biblio._metadata
+    assert lib._biblio.reservations()[0][0].title == "Recovered"
+    assert lib._biblio.reservations()[0][0].creators == "Author"
+    assert lib._get.call_count == 5
