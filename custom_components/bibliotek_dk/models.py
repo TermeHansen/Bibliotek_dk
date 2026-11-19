@@ -35,6 +35,7 @@ class libraryUser:
         self.eBooksQuota = 0
         self.audioBooks = 0
         self.audioBooksQuota = 0
+        self.digitalLoansQuota = None
         self.pickupLibrary = None
 
 

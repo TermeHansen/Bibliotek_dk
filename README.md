@@ -18,7 +18,7 @@ All the configuration is done in GUI.
 - **Municipality**, Home Assistant will try to determine this from the coordinates of your home zone
 - **CPR - number / loannumber**
 - **Pincode**
-- Show eReolen (e-books and audiobooks), boolean (default true)
+- Show Biblo / eReolen (e-books and audiobooks), boolean (default true)
 - Show loans, boolean (default true)
 - Show debts (fees), boolean (default true)
 - Show reservations, boolean (default true)
@@ -40,6 +40,23 @@ The integration creates these sensors:
 
 All sensors support the `show_*` options above; disabled groups are not created.
 All sensors for an account are grouped under a single device in Home Assistant.
+
+### Biblo
+
+Digital loans use DBC's Biblio LMS adapter when the library website enables
+it. Your existing login and digital-loans setting are reused. Libraries that
+have not switched continue to use the eReolen/Pubhub connection.
+
+The general sensor's `digital_loans_quota` attribute contains Biblio's quotas
+per organization. If the library shares one allowance between e-books and
+audiobooks, `ebooks_quota` and `audiobooks_quota` are `null` rather than two
+independent allowances. See [BIBLO.md](BIBLO.md) for verification and limitations.
+
+**Existing dashboards:** digital materials can now have `type: audiobook` or
+`type: podcast` (e-books still use `epub`). If your template maps types to
+icons, add these values and use `types.get(book.type, '📖')` instead of
+`types[book.type]`. An unknown type otherwise breaks the whole loan list.
+See the [copyable example](BIBLO.md#existing-dashboard-templates).
 
 ### Cards
 `loans_card.yaml` is a drop-in card: one row per loan, across every configured

@@ -12,6 +12,9 @@ from dateutil import parser
 from datetime import timedelta, datetime
 import logging
 import re
+from requests.exceptions import RequestException
+
+from .biblio import BiblioClient, BiblioError
 
 from .const import (
     URL_BRANCH_GRAPHQL,
@@ -97,6 +100,7 @@ class Library:
         self._reservations_ready = {"physical": [], "ereolen": []}
 
         self._transport = LibraryTransport(host, self.user)
+        self._biblio = None
 
     # The update function is called from the coordinator from Home Assistant
     def update(self):
@@ -113,6 +117,21 @@ class Library:
             raise LibraryAuthError(
                 f"Login failed for {self.user.date} (check user id and pincode)"
             )
+
+        if self.use_eReolen:
+            # Follow the library website's rollout flag, not just the presence
+            # of an adapter URL (the URL is also advertised before rollout).
+            try:
+                digital_config = self.urls
+            except RequestException as err:
+                _LOGGER.warning(f"Error discovering digital provider: {err}")
+                digital_config = {}
+            if digital_config.get("data-use-biblio-adapter-config") == "1":
+                base_url = digital_config.get("data-biblio-base-url")
+                if base_url and self._biblio is None:
+                    self._biblio = BiblioClient(self, base_url)
+                    self.user.eBooksQuota = None
+                    self.user.audioBooksQuota = None
 
         # Fetch the profile on the first poll and then at most once a day, so
         # changes such as branch, address or notification settings propagate.
@@ -254,7 +273,8 @@ class Library:
                 self._urls = {
                     m[0]: m[1]
                     for m in re.findall(
-                        r'(data-[a-zA-Z0-9\-\_]+-url)="([^"]*)"', res.text
+                        r'(data-(?:[a-zA-Z0-9\-\_]+-url|use-biblio-adapter-config))="([^"]*)"',
+                        res.text,
                     )
                 }
             else:
@@ -334,7 +354,9 @@ class Library:
                 f"({self.user.date}) Error fetching loans ({res.status_code})"
             )
         # Ebooks
-        if self.use_eReolen:
+        if self.use_eReolen and self._biblio is not None:
+            self._fetchBiblioLoans()
+        elif self.use_eReolen:
             res = self._get(f"{URL_PUBHUB_BASE}/user/loans", headers=self.json_header)
             if res.status_code == 200:
                 edata = res.json()
@@ -395,6 +417,7 @@ class Library:
             self.user.eBooksQuota = 0
             self.user.audioBooks = 0
             self.user.audioBooksQuota = 0
+            self.user.digitalLoansQuota = None
             self._loans["ereolen"] = []
             self._loans_overdue["ereolen"] = []
 
@@ -405,6 +428,46 @@ class Library:
         self.user.loansOverdue = (
             self._loans_overdue["physical"] + self._loans_overdue["ereolen"]
         )
+
+    def _fetchBiblioLoans(self):
+        try:
+            loans = self._biblio.loans()
+        except (BiblioError, RequestException, KeyError, TypeError, ValueError) as err:
+            _LOGGER.warning(f"Error fetching Biblo loans: {err}")
+            return
+        self._loans["ereolen"] = loans
+        self._loans_overdue["ereolen"] = []
+        self.user.eBooks = sum(loan.type == "epub" for loan in loans)
+        self.user.audioBooks = sum(loan.type == "audiobook" for loan in loans)
+        try:
+            quotas = self._biblio.quotas()
+            # An account can have quotas at several organizations. Do not
+            # silently sum them into a fictitious per-format allowance.
+            if len(quotas) == 1:
+                quota = quotas[0]
+                if quota["split_on_format"]:
+                    maximum = quota["max_concurrent_user_loans"]
+                    ebooks, audio = maximum["ebook"], maximum["audiobook"]
+                else:
+                    # Shared allowances cannot be expressed as two independent
+                    # quotas. The exact response is exposed separately below.
+                    ebooks, audio = None, None
+            else:
+                ebooks, audio = None, None
+            self.user.eBooksQuota = ebooks
+            self.user.audioBooksQuota = audio
+            self.user.digitalLoansQuota = quotas
+        except (BiblioError, RequestException, KeyError, TypeError, ValueError) as err:
+            _LOGGER.warning(f"Error fetching Biblo quotas: {err}")
+
+    def _fetchBiblioReservations(self):
+        try:
+            waiting, ready = self._biblio.reservations()
+        except (BiblioError, RequestException, KeyError, TypeError, ValueError) as err:
+            _LOGGER.warning(f"Error fetching Biblo reservations: {err}")
+            return
+        self._reservations["ereolen"] = waiting
+        self._reservations_ready["ereolen"] = ready
 
     # Renew one or more physical loans. ``loan_ids`` are the API's ``loanId``
     # values, exposed to users as ``renew_id`` on the loan sensor attributes.
@@ -492,7 +555,9 @@ class Library:
             )
 
         # eReolen
-        if self.use_eReolen:
+        if self.use_eReolen and self._biblio is not None:
+            self._fetchBiblioReservations()
+        elif self.use_eReolen:
             res = self._get(
                 f"{URL_PUBHUB_BASE}/user/reservations", headers=self.json_header
             )

@@ -254,6 +254,7 @@ class LibrarySensor(BibliotekBaseSensor):
             "ebooks_quota": self.myLibrary.user.eBooksQuota,
             "audiobooks": self.myLibrary.user.audioBooks,
             "audiobooks_quota": self.myLibrary.user.audioBooksQuota,
+            "digital_loans_quota": self.myLibrary.user.digitalLoansQuota,
             "sensor_type": "main",
             ATTR_UNIT_OF_MEASUREMENT: "days",
             ATTR_ATTRIBUTION: CREDITS,
