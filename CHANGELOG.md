@@ -6,6 +6,8 @@
 
 ### Changes
 
+* Update `dashboard.yaml` with Biblo status, renewal controls, corrected fee
+  fields and explicit empty-list/unavailable-data messages.
 * Add `bibliotek_dk.renew_all_loans` to renew currently eligible physical
   loans for one account. Eligibility is fetched from the library when called;
   failed lookups do not fall back to stale sensor data.

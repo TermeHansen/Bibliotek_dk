@@ -65,6 +65,12 @@ Bibliotek sensors itself (from their attributes), so there is nothing to edit an
 it keeps working when entities are renamed. Paste it into a dashboard (Add card →
 Manual) or use `dashboard.yaml` as a starting point.
 
+`dashboard.yaml` contains the complete sections dashboard with Biblo status,
+fees, loans, overdue loans, reservations and pickups. It includes individual
+and bulk renewal controls and messages for empty lists or unavailable data.
+It requires `auto-entities` and `template-entity-row`; no personal entity IDs,
+custom theme or `browser_mod` are needed.
+
 `loans_card_decluttering.yaml` is the same card as a
 [decluttering-card](https://github.com/custom-cards/decluttering-card) template,
 so you can pass a specific `entity` and `title`. (Home Assistant has no card
