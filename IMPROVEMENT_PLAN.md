@@ -253,12 +253,15 @@ silently vanished from the result. Now seeded with every requested id
 `(AttributeError, KeyError)` handler did not catch, failing the whole profile
 refresh. The handler now also catches `TypeError`/`ValueError`.
 
-### 7.7 Hand-rolled coordinator wiring — LOW
+### 7.7 Hand-rolled coordinator wiring — LOW — DONE (0.8.2)
 
 `BibliotekBaseSensor` re-implements what HA's `CoordinatorEntity` provides
 (`should_poll`, `available`, listener wiring); the original Section 4 item even
 named `CoordinatorEntity`, but the implementation subclasses `SensorEntity`
-directly. Not a bug — adopting it deletes ~30 lines and one custom code path.
+directly. Replaced the shared base with `CoordinatorEntity, SensorEntity` and
+delegated initialization to HA. Removed duplicate availability, polling,
+manual-refresh and listener wiring. All six sensor types retain their IDs and
+attributes; lifecycle tests cover notification, failure/recovery and cleanup.
 
 ### 7.8 Cosmetic — LOW
 

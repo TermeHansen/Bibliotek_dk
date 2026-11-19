@@ -1,5 +1,15 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.8.2
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Use Home Assistant's `CoordinatorEntity` for sensor availability, manual
+  refresh and update-listener lifecycle (IMPROVEMENT_PLAN.md section 7.7).
+  Sensor IDs, attributes, configuration and polling interval are unchanged.
+
 ## Version 0.8.1
 
 **Date**: `2026-10-24`
