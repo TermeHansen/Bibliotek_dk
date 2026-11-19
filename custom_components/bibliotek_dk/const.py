@@ -57,6 +57,7 @@ URL_BRANCH_GRAPHQL = "https://bibliotek.dk/api/bibdk21/graphql"
 
 # HA service to renew one or more physical loans.
 SERVICE_RENEW_LOANS = "renew_loans"
+SERVICE_RENEW_ALL_LOANS = "renew_all_loans"
 ATTR_LOAN_IDS = "loan_ids"
 
 

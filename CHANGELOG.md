@@ -1,5 +1,18 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.10.0
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Add `bibliotek_dk.renew_all_loans` to renew currently eligible physical
+  loans for one account. Eligibility is fetched from the library when called;
+  failed lookups do not fall back to stale sensor data.
+* Add the optional `loans_card_renewal.yaml` dashboard card with individual
+  and per-account renewal controls, including confirmation dialogs. The
+  existing `renew_loans` action and read-only cards continue to work.
+
 ## Version 0.9.0
 
 **Date**: `2026-11-19`

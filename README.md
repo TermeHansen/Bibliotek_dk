@@ -75,6 +75,32 @@ cover popup on tap additionally needs `browser_mod` (remove the `tap_action`
 block if you do not use it).
 
 ### Renewing loans
+
+For dashboard controls, paste `loans_card_renewal.yaml` into a Manual card.
+It discovers all configured accounts automatically. Tap a loan marked
+**Forny** to renew it, or **Forny alle** to renew the eligible physical loans
+for that account. Both actions ask for confirmation. Digital loans and
+physical loans the library marks as nonrenewable have no renewal action.
+The existing read-only/cover-popup cards remain available.
+
+`bibliotek_dk.renew_all_loans` needs only the `config_entry_id`. It reads a
+fresh eligibility list directly from the physical library API before
+requesting renewal, including overdue loans when the library permits them.
+If that lookup fails, no renewal is sent. An account with no eligible loans
+returns an empty `renewed` mapping without sending a renewal request.
+
+```yaml
+action: bibliotek_dk.renew_all_loans
+data:
+  config_entry_id: 0f1e2d3c4b5a69788796a5b4c3d2e1f0
+```
+
+Both renewal actions return per-loan statuses when called from a script or
+automation with a response variable. A library may reject a loan even if it
+was eligible a moment earlier (for example, someone just reserved it).
+Partial successes refresh the sensors and retain each loan's result in the
+response. If no requested loan is renewed, the action reports an error.
+
 Physical loans can be renewed from an automation or the Developer Tools with the
 `bibliotek_dk.renew_loans` service. It takes the `config_entry_id` and one or
 more `loan_ids` (the `renew_id` attribute on each item of the loans sensor) and
