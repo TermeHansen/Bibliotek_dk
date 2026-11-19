@@ -1,5 +1,17 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.8.2
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Sort overdue loans by due date and fees by creation date, oldest first,
+  then by title. Undated items sort last; missing titles are supported.
+* Correct the internal `get_debts` flag spelling and replace a misleading
+  loan-date comment (IMPROVEMENT_PLAN.md section 7.8). Sensor IDs, attributes
+  and configuration keys are unchanged.
+
 ## Version 0.8.1
 
 **Date**: `2026-10-24`
