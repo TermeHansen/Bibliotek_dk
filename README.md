@@ -83,6 +83,11 @@ for that account. Both actions ask for confirmation. Digital loans and
 physical loans the library marks as nonrenewable have no renewal action.
 The existing read-only/cover-popup cards remain available.
 
+Illustration with synthetic example data (not a screenshot of an installed
+Home Assistant card):
+
+![Renewal card preview with individual and per-account actions](docs/images/renewal-card-preview.jpg)
+
 `bibliotek_dk.renew_all_loans` needs only the `config_entry_id`. It reads a
 fresh eligibility list directly from the physical library API before
 requesting renewal, including overdue loans when the library permits them.
