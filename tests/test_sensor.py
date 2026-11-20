@@ -86,14 +86,12 @@ def _library():
 def _loan(title, expire):
     mat = libraryMaterial(
         {
-            "manifestation": {
-                "pid": "p",
-                "ownerWork": {"workId": "work-of:x"},
-                "titles": {"full": [title]},
-                "creators": [{"display": "Author"}],
-                "cover": {"thumbnail": "c"},
-                "materialTypes": [{"materialTypeSpecific": {"display": "bog"}}],
-            }
+            "recordId": "870970-basis:1",
+            "workId": "work-of:x",
+            "title": title,
+            "creators": ["Author"],
+            "coverUrl": "c",
+            "materialType": {"display": "bog"},
         }
     )
     loan = libraryLoan.__new__(libraryLoan)

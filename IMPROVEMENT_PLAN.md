@@ -55,7 +55,7 @@ Duplicate `_LOGGER` lines removed from `library_api.py` and `sensor.py`.
 `tests/` added, following the sibling `affalddk` repo: `conftest.py` stubs the
 `homeassistant` package, so the suite runs **without a HA install**. Covers:
 - `sortLists()` ordering (loans by expire, reservations by queue, ready by pickup).
-- `libraryMaterial` parsing for both eReolen and `manifestation` payloads,
+- `libraryMaterial` parsing for both eReolen and physical record payloads,
   including the new `url` fields and the missing-field cases.
 - `md5_unique_id` stability, `_branchName` id-splitting, `use_eReolen` plumbing,
   the `_user_token_exp` regression.
@@ -67,8 +67,8 @@ and `UTC`). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 Config-flow HTTP parsing is now covered too: `refreshLibraries` and
 `municipalityFromCoor` were extracted to module-level helpers and are tested with
-a fake `requests` session (success, gatewayf split, HTTP error, timeout, missing
-script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
+a fake `requests` session (success, HTTP error, timeout, empty agency payload).
+Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 ---
 
@@ -270,12 +270,17 @@ directly. Not a bug — adopting it deletes ~30 lines and one custom code path.
   oldest first, then title. Missing dates sort last and missing titles use an
   empty string, matching the existing loan sort. Covered by regression tests.
 
-### 7.9 `_getDetails` staging-host fallback — NOTE
+### 7.9 `_getDetails` staging-host fallback — DONE (0.9.2)
 
-When the scraped `data-fbi-global-base-url` is missing, the fallback is
+When the scraped `data-fbi-global-base-url` was missing, the fallback was
 `https://temp.fbi-api.dbc.dk/...` — a staging host that may vanish; every poll
-then emits one warning per material. Consider failing soft (return `{}`
-without the request) or logging once per host instead of per material.
+then emitted one warning per material.
+
+Fixed by removing the scraped host entirely: details now come from the Biblo
+app's record endpoint, `GET /v1/agencies/{agencyId}/records/{recordId}`, which
+is JSON, needs no patron login, and carries no staging fallback. The scraped
+`data-*-url` attributes are still read, but only for the digital-provider
+rollout flags.
 
 ---
 
@@ -299,3 +304,109 @@ Remaining work, in the order it should land (proposed 2026-10-23):
 4. Post-detach: revisit `codeowners` in `manifest.json` and `CREDITS` in
    `const.py` (keeping both is fine as attribution — make it a conscious
    choice).
+
+---
+
+## Section 8 — The Biblo app API (DDF), evaluated 2026-11-21
+
+`https://api.detdigitalefolkebibliotek.dk` is the backend of the Biblo app. It
+is worth knowing about because it is the only *documented* JSON surface for
+this data (spec at `/_openapi.json`), and it removes HTML scraping. Findings
+below were measured against a real account, not inferred.
+
+### 8.1 What it is
+
+- Serves three apps through a required `x-app-type` header:
+  `mybiblo` (physical/FBS), `biblo` (digital/WDB), `biblogo` (children).
+- The partition is **per request, not per session**: one login serves
+  `mybiblo` loans, `biblo` quotas and the ungated endpoints by switching the
+  header. It is a single session.
+- Every request also needs `x-app`, `x-installation-id` and `x-api-key`. The
+  key is enforced (`401 "Missing API key"`); the first two are only
+  format-checked (>= 10 chars).
+
+### 8.2 Auth: the reason it cannot replace the login
+
+`POST /v1/auth/login` takes `{code, redirect_uri}` with HTTP Basic
+`client_id:client_secret` — it consumes an OAuth code, not a card number and
+pincode. To obtain that code you must still drive login.bib.dk's HTML form
+(`login.bib.dk/login` alone answers 403 "Login cannot be called directly", and
+the form action carries a per-session CSRF hash).
+
+So the login scrape is unavoidable either way. The API removes scraping from
+*everything after* login, which is where three of the four scrape sites live.
+
+Our existing FBS user token is **not** accepted (`401 "Invalid bearer token"`);
+the API wants its own BFF JWT. The `client_id`/`client_secret`/`x-api-key` are
+the Biblo APK's hardcoded values. Precedent for embedding a first-party app key
+exists in `affalddk` (`GH_API`, base64 renoweb key), but the risk is silent
+breakage when DBC rotates them.
+
+### 8.3 Adopted in 0.9.2
+
+- **Record details** — `GET /v1/agencies/{agencyId}/records/{recordId}`.
+  Anonymous (no bearer). Replaces the GraphQL `_getDetails` and closes 7.9.
+  Returns title, creators[], coverUrl, isbn, publisher[], numberOfPages,
+  genre[], edition, originalTitle, series, shelfmark{}, audience, extent,
+  notes[] — a superset of the old lookup. Requires a full record id; a bare
+  faust must be expanded to `870970-basis:<faust>` or the API answers 400.
+  `libraryMaterial` reads this flat record directly: the nested `manifestation`
+  shape only ever existed because the old GraphQL call returned it, so an
+  adapter would have been a translation layer between two shapes neither of
+  which the API produces. Removing it also means the models can see the extra
+  fields (isbn, shelfmark, genre, ...) if they are ever surfaced.
+- **Agency list** — `GET /v1/agencies`. 98 agencies as JSON with id, name,
+  address, phone, email, urlDomain. Adopted in 0.9.3 as the only source (see
+  below); the login page's `var libraries` scrape is deleted.
+
+### 8.4 Rejected, with reasons
+
+- **Loans/reservations through the API.** Needs the app credentials for a
+  patron session, and `/account` has no `address` (the main sensor's `address`
+  attribute is used as a `rejectattr` discriminator in `dashboard.yaml`). Not
+  worth the credential risk while FBS works.
+
+### 8.5 The library-list switch (0.9.3)
+
+Two objections blocked the switch at first; both were answered rather than
+accepted, and the switch landed:
+
+- **No gatewayf flag.** The scrape's exclusion tested `registrationUrl`, which
+  is the *account-creation* URL, not the login form. The five agencies it hid
+  (Assens `742000`, Odense `746100`, Svendborg `747900`, Nordfyns `748000`,
+  Langeland `748200`) serve the identical borchk login form (card + pincode), so
+  the exclusion was stale. **Decision: activate all five** rather than carry the
+  ids over to the API list as a hand-maintained set — the owner will ask users in
+  those municipalities to test during pre-release. There is no `GATEWAYF_AGENCIES`
+  set any more, and the `gatewayf` config-flow error is gone with it.
+- **Agency names instead of municipality names.** Solved by
+  `resolveMunicipality()`: exact match, then `MUNICIPALITY_ALIASES`, then a
+  folded unique-substring match. All five formerly hidden municipalities now
+  resolve by name (Assens → `AssensBibliotekerne`, Odense → `Odense
+  Bibliotekerne`, Svendborg → `Svendborg Bibliotek`, Nordfyns → `Bibliotek og
+  Borgerservice Nordfyns Kommune`, Langeland → `Langeland Bibliotek`). Against
+  DAWA's 98 Danish municipalities the resolver now misses only Fanø, which is
+  absent from every source. Only `Thisted` → `Biblioteket i Thy` needs an alias.
+  This also fixed a pre-existing bug: the dropdown default was the raw
+  municipality, so it could never preselect for the 13 municipalities whose
+  library is named differently.
+
+The API omits two agencies the integration supports (Faroese `911116`, and
+Greenlandic `911130`), so `EXTRA_LIBRARIES` adds them back. A plain API
+pass-through would have silently dropped them.
+
+The scrape itself is deleted rather than kept as a fallback: it depended on the
+page's HTML shape and a `var libraries` script, which is exactly the coupling the
+JSON endpoint removes. A failed agency lookup now reports `cannot_connect`.
+
+### 8.6 Open questions
+
+- The five formerly hidden libraries are enabled on the owner's instruction and
+  need real-account confirmation from users in Assens, Odense, Svendborg,
+  Nordfyns and Langeland during pre-release. If one turns out not to work, the
+  fix is a targeted exclusion, not a return to the scrape.
+- Fanø has no library in any source (not in the API list, not on the login
+  page), so a Fanø user has nothing to select. Needs a separate investigation.
+- Three agencies have a different `urlDomain` than the host the old regex
+  extracted (Roskilde, Lejre, Mariagerfjord); both hosts were verified to work,
+  so this is not urgent.

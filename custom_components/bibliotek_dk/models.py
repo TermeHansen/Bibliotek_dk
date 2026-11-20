@@ -69,16 +69,15 @@ class libraryMaterial:
                 isbn = (data.get("externalProductId") or {}).get("id")
                 if isbn:
                     self.url = f"https://bibliotek.dk/?q={isbn}"
-            elif "manifestation" in data:
-                # physical book
-                self.coverUrl = data["manifestation"]["cover"]["thumbnail"]
-                self.title = data["manifestation"]["titles"]["full"][0]  # or main
-                if data["manifestation"]["creators"]:
-                    self.creators = data["manifestation"]["creators"][0]["display"]
-                self.type = data["manifestation"]["materialTypes"][0][
-                    "materialTypeSpecific"
-                ]["display"]
-                workId = (data["manifestation"].get("ownerWork") or {}).get("workId")
+            elif "recordId" in data:
+                # physical book, as the Biblo app record endpoint returns it
+                self.coverUrl = data.get("coverUrl")
+                self.title = data.get("title")
+                creators = data.get("creators") or []
+                if creators:
+                    self.creators = creators[0]
+                self.type = (data.get("materialType") or {}).get("display")
+                workId = data.get("workId")
                 if workId:
                     self.url = f"https://bibliotek.dk/work/{workId}"
         except Exception as err:
