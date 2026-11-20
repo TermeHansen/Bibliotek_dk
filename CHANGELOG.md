@@ -39,6 +39,9 @@
 
 ### Changes
 
+* Normalize Biblo timestamps to local time so remaining loan days are correct
+  around midnight and daylight-saving changes.
+
 * Preserve optional Biblo reservation queue positions as `queue_number`.
 * Expose `other_digital_loans` for types outside e-books/audiobooks, preserving
   the original material type and reconciling the digital format counts.
@@ -67,6 +70,7 @@
 * Correct the internal `get_debts` flag spelling and replace a misleading
   loan-date comment (IMPROVEMENT_PLAN.md section 7.8). Sensor IDs, attributes
   and configuration keys are unchanged.
+
 
 ## Version 0.8.1
 
