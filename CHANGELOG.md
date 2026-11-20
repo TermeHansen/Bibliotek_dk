@@ -34,6 +34,7 @@
 
 ## Version 0.9.0
 
+
 **Date**: `2026-11-19`
 
 ### Changes
@@ -53,6 +54,19 @@
 * Expose Biblio quotas as `digital_loans_quota` on the general sensor. Shared
   allowances are not presented as independent e-book and audiobook quotas.
 * See `BIBLO.md` for contract sources, limitations and manual verification.
+
+
+## Version 0.8.2
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Sort overdue loans by due date and fees by creation date, oldest first,
+  then by title. Undated items sort last; missing titles are supported.
+* Correct the internal `get_debts` flag spelling and replace a misleading
+  loan-date comment (IMPROVEMENT_PLAN.md section 7.8). Sensor IDs, attributes
+  and configuration keys are unchanged.
 
 ## Version 0.8.1
 

@@ -85,7 +85,7 @@ class Library:
         self.use_eReolen = use_eReolen
         self.get_loans = True
         self.get_reservations = True
-        self.get_depts = True
+        self.get_debts = True
 
         self._user_info_fetched = None
         self.branches = {}
@@ -107,7 +107,7 @@ class Library:
     def update(self):
         self._debug(
             f"Updating {self.use_eReolen}, {self.get_loans}, "
-            f"{self.get_reservations}, {self.get_depts}"
+            f"{self.get_reservations}, {self.get_debts}"
         )
 
         # A missing user token means login failed (bad credentials, blocked
@@ -155,7 +155,7 @@ class Library:
             self.fetchLoans()
         if self.get_reservations:
             self.fetchReservations()
-        if self.get_depts:
+        if self.get_debts:
             self.fetchDebts()
 
         # Sort the lists
@@ -207,6 +207,13 @@ class Library:
         # Sort the loans by expireDate and the Title
         self.user.loans.sort(
             key=lambda obj: (obj.expireDate is None, obj.expireDate, obj.title or "")
+        )
+        # Oldest overdue loans and fees first; undated items sort last.
+        self.user.loansOverdue.sort(
+            key=lambda obj: (obj.expireDate is None, obj.expireDate, obj.title or "")
+        )
+        self.user.debts.sort(
+            key=lambda obj: (obj.feeDate is None, obj.feeDate, obj.title or "")
         )
         # Sort the reservations
         self.user.reservations.sort(

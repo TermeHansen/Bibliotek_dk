@@ -260,11 +260,15 @@ refresh. The handler now also catches `TypeError`/`ValueError`.
 named `CoordinatorEntity`, but the implementation subclasses `SensorEntity`
 directly. Not a bug — adopting it deletes ~30 lines and one custom code path.
 
-### 7.8 Cosmetic — LOW
+### 7.8 Cosmetic — LOW — DONE (0.8.2)
 
-- `Library.get_depts` should be `get_debts` (`library_api.py`, set in `sensor.py`).
-- Stale "eReolen reservation in Queue" comment in `LibrarySensor.state` (`sensor.py`).
-- `loansOverdue` and `debts` lists are never sorted (`sortLists` covers the rest).
+- Renamed the internal `Library.get_depts` flag to `get_debts` in the facade,
+  sensor setup and tests; configuration keys and sensor attributes are unchanged.
+- Replaced the stale "eReolen reservation in Queue" comment with an explanation
+  of the missing due-date guard in `LibrarySensor.state`.
+- `sortLists()` now sorts overdue loans by due date and fees by creation date,
+  oldest first, then title. Missing dates sort last and missing titles use an
+  empty string, matching the existing loan sort. Covered by regression tests.
 
 ### 7.9 `_getDetails` staging-host fallback — NOTE
 
