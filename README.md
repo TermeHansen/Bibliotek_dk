@@ -49,8 +49,14 @@ The show/hide toggles can be changed later from the integration's **Configure**
   - **Passphrase mode (zero key on disk):** Supply an optional encryption
     passphrase during setup or **Reconfigure** to encrypt credentials with
     Scrypt (`n=2^16`) + AES-256-GCM without storing any key on disk. After each
-    Home Assistant restart, the integration prompts once via the built-in
-    **Reauth** flow to unlock credentials in RAM.
+    Home Assistant restart, either unlock in the built-in **Reauth** dialog or
+    invoke the `bibliotek_dk.unlock` service from an external key escrow (such
+    as Restate/Vault) to unlock all configured family accounts in RAM and allow
+    adding new accounts with **Use unlocked RAM escrow passphrase**.
+- **Multiple Family Accounts:** Add as many accounts as needed (**Add
+  Integration -> Bibliotek**); each account gets isolated `<entry_id>_*`
+  sensors and its own device, and `loans_card.yaml` / `dashboard.yaml` aggregate
+  every configured family member automatically.
 - **No CPR or Birthdate Leakage:** `ConfigEntry.unique_id` uses a keyed
   HMAC-SHA256 digest, sensor `unique_id`s use opaque `entry_id` prefixes (no
   unsalted MD5 of CPR), and logs/exceptions never include the CPR birthdate

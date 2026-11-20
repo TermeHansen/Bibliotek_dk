@@ -11,7 +11,8 @@
   mode (`BIBLIOTEK_DK_ENCRYPTION_KEY`, `configuration.yaml` `encryption_key` /
   `key_file`, or auto-generated `0600` `.storage/bibliotek_dk.key`) and
   passphrase mode (Scrypt + AES-256-GCM with zero key material on disk,
-  unlocked in memory via Home Assistant's Reauth flow after restarts).
+  unlocked in memory via Home Assistant's Reauth flow or the `bibliotek_dk.unlock`
+  RAM escrow service for multi-account family setups).
 * Replace raw CPR `ConfigEntry.unique_id` values with keyed HMAC-SHA256 digests
   and migrate sensor `unique_id`s away from unsalted MD5 of CPR to opaque
   `config_entry.entry_id`-scoped identifiers (`v1` -> `v2` migration).

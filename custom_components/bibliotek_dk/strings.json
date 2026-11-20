@@ -7,6 +7,7 @@
           "municipality": "[%key:common::config_flow::data::municipality%]",
           "user_id": "[%key:common::config_flow::data::user_id%]",
           "pincode": "[%key:common::config_flow::data::pincode%]",
+          "use_escrow_passphrase": "Use unlocked RAM escrow passphrase",
           "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)",
           "show_debts": "[%key:common::config_flow::data::show_debts%]",
           "show_loans": "[%key:common::config_flow::data::show_loans%]",
@@ -16,6 +17,7 @@
           "update_interval": "[%key:common::config_flow::data::update_interval%]"
         },
         "data_description": {
+          "use_escrow_passphrase": "Encrypt with the active RAM escrow passphrase (provided via bibliotek_dk.unlock) without typing or storing the passphrase.",
           "encryption_passphrase": "If set, credentials are encrypted with Scrypt + AES-256-GCM and nothing is written to disk. You will be prompted to unlock after every Home Assistant restart.",
           "expose_personal_info": "Off by default to keep home address, phone number, and email out of the Home Assistant recorder."
         }
@@ -36,7 +38,11 @@
           "municipality": "Municipality",
           "user_id": "CPR or library number",
           "pincode": "PIN code",
+          "use_escrow_passphrase": "Use unlocked RAM escrow passphrase",
           "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)"
+        },
+        "data_description": {
+          "use_escrow_passphrase": "Encrypt with the active RAM escrow passphrase (provided via bibliotek_dk.unlock) without typing or storing the passphrase."
         }
       }
     },
@@ -81,6 +87,20 @@
         "loan_ids": {
           "name": "Loan ids",
           "description": "The loan ids to renew (the renew_id attribute on the loans sensor)."
+        }
+      }
+    },
+    "unlock": {
+      "name": "Unlock encrypted accounts",
+      "description": "Supply an encryption passphrase in RAM to unlock passphrase-protected Bibliotek accounts and act as the active RAM escrow for new accounts.",
+      "fields": {
+        "encryption_passphrase": {
+          "name": "Encryption passphrase",
+          "description": "Passphrase used to encrypt and unlock protected accounts in RAM."
+        },
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Optional Bibliotek configuration entry to target exclusively."
         }
       }
     }

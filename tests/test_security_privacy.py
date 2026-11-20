@@ -11,6 +11,7 @@ import pytest
 from custom_components.bibliotek_dk import (
     async_migrate_entry,
     async_remove_entry,
+    async_setup,
     async_setup_entry,
     async_unload_entry,
     config_flow,
@@ -29,11 +30,14 @@ from custom_components.bibliotek_dk.const import (
     CONF_SHOW_LOANS,
     CONF_SHOW_RESERVATIONS,
     CONF_UPDATE_INTERVAL,
+    CONF_USE_ESCROW_PASSPHRASE,
     CONF_USER_ID,
+    DATA_ESCROW_PASSPHRASE,
     DATA_PASSPHRASES,
     DOMAIN,
     ENCRYPTION_MODE_KEYFILE,
     ENCRYPTION_MODE_PASSPHRASE,
+    SERVICE_UNLOCK,
 )
 from custom_components.bibliotek_dk.crypto import (
     ENC_PREFIX_KEYFILE,
@@ -73,15 +77,18 @@ class _FakeConfig:
 class _FakeServices:
     def __init__(self) -> None:
         self.registered = {}
+        self.supports_response = {}
 
     def has_service(self, domain, service):
         return (domain, service) in self.registered
 
     def async_register(self, domain, service, handler, supports_response=None):
         self.registered[(domain, service)] = handler
+        self.supports_response[(domain, service)] = supports_response
 
     def async_remove(self, domain, service):
         self.registered.pop((domain, service), None)
+        self.supports_response.pop((domain, service), None)
 
 
 class _FakeConfigEntries:
@@ -89,6 +96,9 @@ class _FakeConfigEntries:
         self.entries = list(entries or [])
         self.reloaded = []
         self.updated_calls = []
+
+    def async_entries(self, domain=None):
+        return list(self.entries)
 
     async def async_forward_entry_setups(self, entry, platforms):
         return True
@@ -669,3 +679,195 @@ async def test_reconfigure_switches_encryption_modes(tmp_path: Path, monkeypatch
     assert entry.data[CONF_ENCRYPTION_MODE] == ENCRYPTION_MODE_KEYFILE
     assert entry.data[CONF_USER_ID].startswith(ENC_PREFIX_KEYFILE)
     assert entry.entry_id not in hass.data[DATA_PASSPHRASES]
+
+
+@pytest.mark.asyncio
+async def test_async_setup_registers_unlock_service_with_zero_entries(tmp_path: Path):
+    from homeassistant.core import SupportsResponse
+
+    hass = _FakeHass(tmp_path)
+    assert await async_setup(hass, {}) is True
+    assert (DOMAIN, SERVICE_UNLOCK) in hass.services.registered
+    assert (
+        hass.services.supports_response[(DOMAIN, SERVICE_UNLOCK)]
+        == SupportsResponse.OPTIONAL
+    )
+
+
+@pytest.mark.asyncio
+async def test_unlock_service_stores_escrow_unlocks_multiple_family_entries(
+    tmp_path: Path, monkeypatch
+):
+    from homeassistant.core import ServiceCall
+    from homeassistant.exceptions import HomeAssistantError
+
+    class FakeSession:
+        def close(self):
+            return None
+
+    class FakeLibrary:
+        def __init__(self, uid, pin, host, agency, **_kwargs):
+            self.user = type("U", (), {"userId": uid})()
+            self.host = host
+            self.session = FakeSession()
+
+        def login(self):
+            return "https://test.bib.dk/logout"
+
+    monkeypatch.setattr(config_flow, "Library", FakeLibrary)
+    hass = _FakeHass(tmp_path)
+    assert await async_setup(hass, {}) is True
+
+    phrase = _secret("family-escrow")
+    other_phrase = _secret("other-member")
+
+    info1 = await config_flow.validate_input(
+        hass,
+        _user_payload(
+            **{CONF_USER_ID: "0102991234", CONF_ENCRYPTION_PASSPHRASE: phrase}
+        ),
+        LIBRARIES,
+    )
+    info2 = await config_flow.validate_input(
+        hass,
+        _user_payload(
+            **{CONF_USER_ID: "0203005678", CONF_ENCRYPTION_PASSPHRASE: phrase}
+        ),
+        LIBRARIES,
+    )
+    info3 = await config_flow.validate_input(
+        hass,
+        _user_payload(**{CONF_USER_ID: "0304019999"}),
+        LIBRARIES,
+    )
+    info4 = await config_flow.validate_input(
+        hass,
+        _user_payload(
+            **{CONF_USER_ID: "0405021111", CONF_ENCRYPTION_PASSPHRASE: other_phrase}
+        ),
+        LIBRARIES,
+    )
+
+    e1 = _FakeEntry(
+        data=info1["data"], entry_id="family_1", unique_id=info1["unique_id"]
+    )
+    e2 = _FakeEntry(
+        data=info2["data"], entry_id="family_2", unique_id=info2["unique_id"]
+    )
+    e3 = _FakeEntry(
+        data=info3["data"], entry_id="family_3", unique_id=info3["unique_id"]
+    )
+    e4 = _FakeEntry(
+        data=info4["data"], entry_id="family_4", unique_id=info4["unique_id"]
+    )
+    hass.config_entries.entries.extend([e1, e2, e3, e4])
+
+    unlock_handler = hass.services.registered[(DOMAIN, SERVICE_UNLOCK)]
+    res = await unlock_handler(ServiceCall({CONF_ENCRYPTION_PASSPHRASE: phrase}))
+
+    assert hass.data[DATA_ESCROW_PASSPHRASE] == phrase
+    assert hass.data[DATA_PASSPHRASES]["family_1"] == phrase
+    assert hass.data[DATA_PASSPHRASES]["family_2"] == phrase
+    assert hass.config_entries.reloaded == ["family_1", "family_2"]
+    assert res == {
+        "escrow_active": True,
+        "unlocked": ["family_1", "family_2"],
+        "already_unlocked": ["family_3"],
+        "failed": ["family_4"],
+    }
+    assert phrase not in str(res)
+
+    # Mark family_1 as already loaded; repeated unlock skips it cleanly.
+    hass.config_entries.reloaded.clear()
+    hass.data.setdefault(DOMAIN, {})["family_1"] = object()
+    res_repeat = await unlock_handler(ServiceCall({CONF_ENCRYPTION_PASSPHRASE: phrase}))
+    assert "family_1" in res_repeat["already_unlocked"]
+    assert "family_1" not in res_repeat["unlocked"]
+    assert hass.config_entries.reloaded == ["family_2"]
+
+    # Explicit config_entry_id with wrong passphrase raises HomeAssistantError.
+    with pytest.raises(HomeAssistantError):
+        await unlock_handler(
+            ServiceCall(
+                {
+                    CONF_ENCRYPTION_PASSPHRASE: _secret("wrong"),
+                    "config_entry_id": "family_1",
+                }
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_async_setup_entry_falls_back_to_ram_escrow_passphrase(
+    tmp_path: Path, monkeypatch
+):
+    class FakeSession:
+        def close(self):
+            return None
+
+    class FakeLibrary:
+        def __init__(self, uid, pin, host, agency, **_kwargs):
+            self.user = type("U", (), {"userId": uid})()
+            self.host = host
+            self.session = FakeSession()
+
+        def login(self):
+            return "https://test.bib.dk/logout"
+
+    monkeypatch.setattr(config_flow, "Library", FakeLibrary)
+    hass = _FakeHass(tmp_path)
+    phrase = _secret("escrow-fallback")
+
+    info = await config_flow.validate_input(
+        hass, _user_payload(**{CONF_ENCRYPTION_PASSPHRASE: phrase}), LIBRARIES
+    )
+    entry = _FakeEntry(
+        data=info["data"], entry_id="escrow_entry", unique_id=info["unique_id"]
+    )
+    hass.data[DATA_ESCROW_PASSPHRASE] = phrase
+
+    assert await async_setup_entry(hass, entry) is True
+    assert hass.data[DOMAIN]["escrow_entry"].user.userId == "0102991234"
+    assert hass.data[DATA_PASSPHRASES]["escrow_entry"] == phrase
+
+
+@pytest.mark.asyncio
+async def test_config_flow_uses_ram_escrow_passphrase_without_persisting_it(
+    tmp_path: Path, monkeypatch
+):
+    class FakeSession:
+        def close(self):
+            return None
+
+    class FakeLibrary:
+        def __init__(self, uid, pin, host, agency, **_kwargs):
+            self.user = type("U", (), {"userId": uid})()
+            self.host = host
+            self.session = FakeSession()
+
+        def login(self):
+            return "https://test.bib.dk/logout"
+
+    monkeypatch.setattr(config_flow, "Library", FakeLibrary)
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(
+        config_flow, "municipalityFromCoor", lambda *_args: "Test Kommune"
+    )
+
+    hass = _FakeHass(tmp_path)
+    phrase = _secret("active-escrow")
+    hass.data[DATA_ESCROW_PASSPHRASE] = phrase
+
+    flow = config_flow.ConfigFlow()
+    flow.hass = hass
+    form = await flow.async_step_user(None)
+    assert CONF_USE_ESCROW_PASSPHRASE in form["data_schema"].schema
+
+    info = await config_flow.validate_input(
+        hass, _user_payload(**{CONF_USE_ESCROW_PASSPHRASE: True}), LIBRARIES
+    )
+    assert info["data"][CONF_ENCRYPTION_MODE] == ENCRYPTION_MODE_PASSPHRASE
+    assert info["data"][CONF_USER_ID].startswith(ENC_PREFIX_PASSPHRASE)
+    assert CONF_USE_ESCROW_PASSPHRASE not in info["data"]
+    assert CONF_ENCRYPTION_PASSPHRASE not in info["data"]
+    assert info["passphrase"] == phrase

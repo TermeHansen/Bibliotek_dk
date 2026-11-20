@@ -21,6 +21,7 @@
           "municipality": "Kommune",
           "user_id": "CPR eller lånernummer",
           "pincode": "PIN kode",
+          "use_escrow_passphrase": "Brug oplåst RAM-escrow adgangskode",
           "encryption_passphrase": "Valgfri krypteringsadgangskode (lad stå tom for automatisk nøglefil)",
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
@@ -30,6 +31,7 @@
           "expose_personal_info": "Vis adresse, telefon og e-mail på sensorattributter"
         },
         "data_description": {
+          "use_escrow_passphrase": "Krypter med den aktive RAM-escrow adgangskode (leveret via bibliotek_dk.unlock) uden at indtaste eller gemme adgangskoden.",
           "encryption_passphrase": "Hvis angivet, krypteres legitimationsoplysninger med Scrypt + AES-256-GCM uden nøgle på disk. Du bliver bedt om at låse op efter hver genstart af Home Assistant.",
           "expose_personal_info": "Slået fra som standard for at holde adresse, telefonnummer og e-mail ude af Home Assistants historik."
         }
@@ -50,7 +52,11 @@
           "municipality": "Kommune",
           "user_id": "CPR eller lånernummer",
           "pincode": "PIN kode",
+          "use_escrow_passphrase": "Brug oplåst RAM-escrow adgangskode",
           "encryption_passphrase": "Valgfri krypteringsadgangskode (lad stå tom for automatisk nøglefil)"
+        },
+        "data_description": {
+          "use_escrow_passphrase": "Krypter med den aktive RAM-escrow adgangskode (leveret via bibliotek_dk.unlock) uden at indtaste eller gemme adgangskoden."
         }
       }
     }
@@ -81,6 +87,20 @@
         "loan_ids": {
           "name": "Lån-id'er",
           "description": "De lån-id'er der skal fornyes (renew_id-attributten på lån-sensoren)."
+        }
+      }
+    },
+    "unlock": {
+      "name": "Lås krypterede konti op",
+      "description": "Indlæs en krypteringsadgangskode i RAM for at låse adgangskodebeskyttede Bibliotek-konti op og fungere som aktiv RAM-escrow for nye konti.",
+      "fields": {
+        "encryption_passphrase": {
+          "name": "Krypteringsadgangskode",
+          "description": "Adgangskode brugt til at kryptere og låse beskyttede konti op i RAM."
+        },
+        "config_entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Valgfri Bibliotek-konfigurationspost der skal målrettes."
         }
       }
     }

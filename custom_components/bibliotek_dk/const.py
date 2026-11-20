@@ -15,6 +15,7 @@ CONF_SHOW_LOANS = "show_loans"
 CONF_SHOW_ELOANS = "show_eloans"
 CONF_SHOW_RESERVATIONS = "show_reservations"
 CONF_UPDATE_INTERVAL = "update_interval"
+CONF_USE_ESCROW_PASSPHRASE = "use_escrow_passphrase"  # noqa: S105
 CONF_USER_ID = "user_id"
 CREDITS = "J-Lindvig & TermeHansen (https://github.com/TermeHansen/Bibliotek_dk)"
 
@@ -24,6 +25,7 @@ ENCRYPTION_MODE_KEYFILE = "keyfile"
 ENCRYPTION_MODE_PASSPHRASE = "passphrase"  # noqa: S105
 ENV_ENCRYPTION_KEY = "BIBLIOTEK_DK_ENCRYPTION_KEY"
 DATA_CONFIG = f"{DOMAIN}_config"
+DATA_ESCROW_PASSPHRASE = f"{DOMAIN}_escrow_passphrase"  # noqa: S105
 DATA_PASSPHRASES = f"{DOMAIN}_passphrases"
 DATA_MASTER_KEY = f"{DOMAIN}_master_key"
 KEY_FILE_NAME = "bibliotek_dk.key"
@@ -77,8 +79,9 @@ URL_FEES = f"{URL_FBS_BASE}/external/agencyid/patron/patronid/fees/v2"
 URL_PUBHUB_BASE = "https://pubhub-openplatform.dbc.dk/v1"
 URL_BRANCH_GRAPHQL = "https://bibliotek.dk/api/bibdk21/graphql"
 
-# HA service to renew one or more physical loans.
+# HA services.
 SERVICE_RENEW_LOANS = "renew_loans"
+SERVICE_UNLOCK = "unlock"
 ATTR_LOAN_IDS = "loan_ids"
 
 

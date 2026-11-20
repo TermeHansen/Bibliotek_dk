@@ -17,3 +17,24 @@ renew_loans:
       selector:
         text:
           multiple: true
+
+unlock:
+  name: Unlock encrypted accounts
+  description: >-
+    Supply an encryption passphrase in RAM to unlock passphrase-protected
+    Bibliotek accounts and act as the active RAM escrow for new accounts.
+  fields:
+    encryption_passphrase:
+      name: Encryption passphrase
+      description: Passphrase used to encrypt and unlock protected accounts in RAM.
+      required: true
+      selector:
+        text:
+          type: password
+    config_entry_id:
+      name: Config entry
+      description: Optional Bibliotek configuration entry to target exclusively.
+      required: false
+      selector:
+        config_entry:
+          integration: bibliotek_dk

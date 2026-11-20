@@ -34,7 +34,9 @@ from .const import (
     CONF_SHOW_LOANS,
     CONF_SHOW_RESERVATIONS,
     CONF_UPDATE_INTERVAL,
+    CONF_USE_ESCROW_PASSPHRASE,
     CONF_USER_ID,
+    DATA_ESCROW_PASSPHRASE,
     DATA_PASSPHRASES,
     DOMAIN,
     ENCRYPTION_MODE_KEYFILE,
@@ -258,7 +260,11 @@ async def validate_input(
 
     plain_uid = re.sub(r"\D", "", str(payload[CONF_USER_ID]))
     plain_pin = re.sub(r"\D", "", str(payload[CONF_PINCODE]))
-    passphrase = str(payload.pop(CONF_ENCRYPTION_PASSPHRASE, "") or "")
+    explicit_passphrase = str(payload.pop(CONF_ENCRYPTION_PASSPHRASE, "") or "")
+    use_escrow = bool(payload.pop(CONF_USE_ESCROW_PASSPHRASE, False))
+    passphrase = explicit_passphrase or (
+        str(hass.data.get(DATA_ESCROW_PASSPHRASE, "") or "") if use_escrow else ""
+    )
 
     enc_uid, enc_pin, mode, unique_id = await _verify_and_encrypt(
         hass,
@@ -346,32 +352,38 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ] = info["passphrase"]
                 return self.async_create_entry(title=info["title"], data=info["data"])
 
+        user_fields: dict[Any, Any] = {
+            vol.Optional(CONF_NAME, default=""): str,
+            vol.Required(
+                CONF_MUNICIPALITY, default=municipality
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(libraries.keys()),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Required(CONF_USER_ID, default=""): _SECRET_TEXT_SELECTOR,
+            vol.Required(CONF_PINCODE, default=""): _SECRET_TEXT_SELECTOR,
+        }
+        if bool(self.hass.data.get(DATA_ESCROW_PASSPHRASE)):
+            user_fields[vol.Optional(CONF_USE_ESCROW_PASSPHRASE, default=True)] = bool
+        user_fields.update(
+            {
+                vol.Optional(
+                    CONF_ENCRYPTION_PASSPHRASE, default=""
+                ): _PASSPHRASE_SELECTOR,
+                vol.Optional(CONF_SHOW_LOANS, default=True): bool,
+                vol.Optional(CONF_SHOW_ELOANS, default=True): bool,
+                vol.Optional(CONF_SHOW_DEBTS, default=True): bool,
+                vol.Optional(CONF_SHOW_RESERVATIONS, default=True): bool,
+                vol.Optional(CONF_EXPOSE_PERSONAL_INFO, default=False): bool,
+                vol.Optional(CONF_UPDATE_INTERVAL, default=UPDATE_INTERVAL): int,
+            }
+        )
+
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(CONF_NAME, default=""): str,
-                    vol.Required(
-                        CONF_MUNICIPALITY, default=municipality
-                    ): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=list(libraries.keys()),
-                            mode=selector.SelectSelectorMode.DROPDOWN,
-                        ),
-                    ),
-                    vol.Required(CONF_USER_ID, default=""): _SECRET_TEXT_SELECTOR,
-                    vol.Required(CONF_PINCODE, default=""): _SECRET_TEXT_SELECTOR,
-                    vol.Optional(
-                        CONF_ENCRYPTION_PASSPHRASE, default=""
-                    ): _PASSPHRASE_SELECTOR,
-                    vol.Optional(CONF_SHOW_LOANS, default=True): bool,
-                    vol.Optional(CONF_SHOW_ELOANS, default=True): bool,
-                    vol.Optional(CONF_SHOW_DEBTS, default=True): bool,
-                    vol.Optional(CONF_SHOW_RESERVATIONS, default=True): bool,
-                    vol.Optional(CONF_EXPOSE_PERSONAL_INFO, default=False): bool,
-                    vol.Optional(CONF_UPDATE_INTERVAL, default=UPDATE_INTERVAL): int,
-                }
-            ),
+            data_schema=vol.Schema(user_fields),
             errors=errors,
         )
 
@@ -538,25 +550,27 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     reason="reconfigure_successful",
                 )
 
+        reconf_fields: dict[Any, Any] = {
+            vol.Required(
+                CONF_MUNICIPALITY, default=current_municipality
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(libraries.keys()),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                ),
+            ),
+            vol.Required(CONF_USER_ID, default=""): _SECRET_TEXT_SELECTOR,
+            vol.Required(CONF_PINCODE, default=""): _SECRET_TEXT_SELECTOR,
+        }
+        if bool(self.hass.data.get(DATA_ESCROW_PASSPHRASE)):
+            reconf_fields[vol.Optional(CONF_USE_ESCROW_PASSPHRASE, default=True)] = bool
+        reconf_fields[vol.Optional(CONF_ENCRYPTION_PASSPHRASE, default="")] = (
+            _PASSPHRASE_SELECTOR
+        )
+
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_MUNICIPALITY, default=current_municipality
-                    ): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=list(libraries.keys()),
-                            mode=selector.SelectSelectorMode.DROPDOWN,
-                        ),
-                    ),
-                    vol.Required(CONF_USER_ID, default=""): _SECRET_TEXT_SELECTOR,
-                    vol.Required(CONF_PINCODE, default=""): _SECRET_TEXT_SELECTOR,
-                    vol.Optional(
-                        CONF_ENCRYPTION_PASSPHRASE, default=""
-                    ): _PASSPHRASE_SELECTOR,
-                }
-            ),
+            data_schema=vol.Schema(reconf_fields),
             errors=errors,
         )
 

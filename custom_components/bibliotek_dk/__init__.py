@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import voluptuous as vol
 
@@ -18,6 +19,7 @@ from .const import (
     CONF_CONFIG_ENTRY_ID,
     CONF_ENCRYPTION_KEY,
     CONF_ENCRYPTION_MODE,
+    CONF_ENCRYPTION_PASSPHRASE,
     CONF_EXPOSE_PERSONAL_INFO,
     CONF_HOST,
     CONF_KEY_FILE,
@@ -26,11 +28,14 @@ from .const import (
     CONF_SHOW_ELOANS,
     CONF_USER_ID,
     DATA_CONFIG,
+    DATA_ESCROW_PASSPHRASE,
     DATA_PASSPHRASES,
     DOMAIN,
     ENCRYPTION_MODE_KEYFILE,
+    ENCRYPTION_MODE_PASSPHRASE,
     OPTION_KEYS,
     SERVICE_RENEW_LOANS,
+    SERVICE_UNLOCK,
 )
 from .crypto import (
     CredentialDecryptionError,
@@ -41,6 +46,7 @@ from .crypto import (
     encrypt_with_key,
     get_or_create_master_key,
     is_encrypted,
+    is_passphrase_encrypted,
 )
 from .library_api import Library
 from .sensor import _legacy_md5_unique_id
@@ -71,10 +77,91 @@ CONFIG_SCHEMA = vol.Schema(
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Store optional YAML encryption configuration."""
+    """Store optional YAML encryption config and register the unlock escrow service."""
     if DOMAIN in config:
         hass.data[DATA_CONFIG] = dict(config[DOMAIN])
+    if not hass.services.has_service(DOMAIN, SERVICE_UNLOCK):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_UNLOCK,
+            _make_unlock_handler(hass),
+            supports_response=SupportsResponse.OPTIONAL,
+        )
     return True
+
+
+def _make_unlock_handler(hass: HomeAssistant):
+    """Build the ``unlock`` service handler storing the RAM escrow passphrase."""
+
+    async def async_unlock(call: ServiceCall) -> dict[str, Any]:
+        passphrase = str(call.data.get(CONF_ENCRYPTION_PASSPHRASE, "") or "")
+        if not passphrase:
+            raise HomeAssistantError("An encryption passphrase is required")
+
+        target_entry_id = call.data.get(CONF_CONFIG_ENTRY_ID)
+        passphrases = hass.data.setdefault(DATA_PASSPHRASES, {})
+        loaded = hass.data.get(DOMAIN, {})
+
+        entries = list(hass.config_entries.async_entries(DOMAIN))
+        if target_entry_id:
+            entries = [e for e in entries if e.entry_id == target_entry_id]
+            if not entries:
+                raise HomeAssistantError(
+                    f"No Bibliotek configuration entry with id '{target_entry_id}'"
+                )
+
+        unlocked: list[str] = []
+        already_unlocked: list[str] = []
+        failed: list[str] = []
+
+        for entry in entries:
+            is_pass_mode = entry.data.get(
+                CONF_ENCRYPTION_MODE
+            ) == ENCRYPTION_MODE_PASSPHRASE or is_passphrase_encrypted(
+                entry.data.get(CONF_USER_ID)
+            )
+            if not is_pass_mode:
+                already_unlocked.append(entry.entry_id)
+                continue
+            if entry.entry_id in loaded and not target_entry_id:
+                already_unlocked.append(entry.entry_id)
+                continue
+
+            agency = str(entry.data.get(CONF_AGENCY, ""))
+            try:
+                await hass.async_add_executor_job(
+                    decrypt_entry_credentials,
+                    hass,
+                    entry.data,
+                    agency,
+                    passphrase,
+                )
+            except (PassphraseRequiredError, CredentialDecryptionError) as err:
+                if target_entry_id:
+                    raise HomeAssistantError(
+                        f"Failed to unlock Bibliotek entry '{entry.entry_id}'"
+                    ) from err
+                failed.append(entry.entry_id)
+                continue
+
+            passphrases[entry.entry_id] = passphrase
+            if entry.entry_id in loaded:
+                already_unlocked.append(entry.entry_id)
+            else:
+                await hass.config_entries.async_reload(entry.entry_id)
+                unlocked.append(entry.entry_id)
+
+        if unlocked or already_unlocked or not failed:
+            hass.data[DATA_ESCROW_PASSPHRASE] = passphrase
+
+        return {
+            "escrow_active": bool(hass.data.get(DATA_ESCROW_PASSPHRASE)),
+            "unlocked": unlocked,
+            "already_unlocked": already_unlocked,
+            "failed": failed,
+        }
+
+    return async_unlock
 
 
 def _is_hex_md5(value: str | None) -> bool:
@@ -171,6 +258,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if passphrase is None and unique_id and unique_id in passphrases:
         passphrase = passphrases.pop(unique_id)
         passphrases[entry.entry_id] = passphrase
+
+    is_pass_mode = entry.data.get(
+        CONF_ENCRYPTION_MODE
+    ) == ENCRYPTION_MODE_PASSPHRASE or is_passphrase_encrypted(
+        entry.data.get(CONF_USER_ID)
+    )
+    if passphrase is None and is_pass_mode:
+        escrow = hass.data.get(DATA_ESCROW_PASSPHRASE)
+        if escrow:
+            passphrase = escrow
+            passphrases[entry.entry_id] = escrow
+
+    if not hass.services.has_service(DOMAIN, SERVICE_UNLOCK):
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_UNLOCK,
+            _make_unlock_handler(hass),
+            supports_response=SupportsResponse.OPTIONAL,
+        )
 
     agency = str(entry.data.get(CONF_AGENCY, ""))
     try:
