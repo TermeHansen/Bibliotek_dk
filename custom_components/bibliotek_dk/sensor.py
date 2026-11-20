@@ -69,7 +69,7 @@ async def async_setup_entry(
     )
     myLibrary = hass.data[DOMAIN][entry.entry_id]
     myLibrary.get_loans = new_data[CONF_SHOW_LOANS]
-    myLibrary.get_depts = new_data[CONF_SHOW_DEBTS]
+    myLibrary.get_debts = new_data[CONF_SHOW_DEBTS]
     myLibrary.get_reservations = new_data[CONF_SHOW_RESERVATIONS]
     # Expose the coordinator so services (renew_loans) can request a refresh
     # without reloading the whole config entry.
@@ -207,9 +207,8 @@ class LibrarySensor(BibliotekBaseSensor):
     @property
     def state(self):
         if len(self.myLibrary.user.loans) > 0:
-            if (
-                self.myLibrary.user.loans[0].expireDate is not None
-            ):  # eReolen reservation in Queue
+            # Only calculate days remaining when the earliest loan has a due date.
+            if self.myLibrary.user.loans[0].expireDate is not None:
                 return (
                     self.myLibrary.user.loans[0].expireDate.date()
                     - datetime.now().date()

@@ -91,6 +91,44 @@ def test_sort_lists_orders_ready_reservations_by_pickup_date():
     assert [r.title for r in lib.user.reservationsReady] == ["sooner", "later"]
 
 
+@pytest.mark.parametrize(
+    ("list_name", "model", "date_attr"),
+    [("loansOverdue", libraryLoan, "expireDate"), ("debts", libraryDebt, "feeDate")],
+)
+def test_sort_overdue_and_debts_by_date_then_title_with_missing_values(
+    list_name, model, date_attr
+):
+    lib = Library("1234", "0000", "https://example.invalid", "710100")
+    # Input order differs from date/title order; missing dates must sort last.
+    specs = [
+        ("Later", dt.datetime(2026, 2, 1)),
+        ("Undated B", None),
+        ("B", dt.datetime(2026, 1, 1)),
+        (None, dt.datetime(2026, 1, 1)),
+        ("A", dt.datetime(2026, 1, 1)),
+        ("Undated A", None),
+    ]
+    items = []
+    for title, date in specs:
+        item = model(_manifestation())
+        item.title = title
+        setattr(item, date_attr, date)
+        items.append(item)
+    setattr(lib.user, list_name, items)
+
+    lib.sortLists()
+
+    assert [item.title for item in getattr(lib.user, list_name)] == [
+        None,
+        "A",
+        "B",
+        "Later",
+        "Undated A",
+        "Undated B",
+    ]
+    assert len(getattr(lib.user, list_name)) == len(specs)
+
+
 def test_branch_name_splits_id_and_uses_cache():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
     lib.branches = {"123": "Some Branch"}
@@ -188,7 +226,7 @@ def test_fetch_debts_keeps_fee_without_materials():
         }
     ]
     lib.session = _FakeSession(get=_FakeResponse(payload=fees))
-    lib.get_depts = True
+    lib.get_debts = True
 
     lib.fetchDebts()
 
@@ -209,7 +247,7 @@ def test_update_refreshes_profile_at_most_daily():
         return True
 
     lib.fetchUserInfo = fake_fetch
-    lib.get_loans = lib.get_reservations = lib.get_depts = False
+    lib.get_loans = lib.get_reservations = lib.get_debts = False
 
     lib.update()  # first poll -> fetch
     lib.update()  # same day -> no fetch
@@ -233,7 +271,7 @@ def test_update_retries_profile_after_failed_fetch():
         return False
 
     lib.fetchUserInfo = failing_fetch
-    lib.get_loans = lib.get_reservations = lib.get_depts = False
+    lib.get_loans = lib.get_reservations = lib.get_debts = False
 
     lib.update()
     lib.update()
