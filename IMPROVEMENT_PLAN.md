@@ -355,27 +355,51 @@ breakage when DBC rotates them.
   adapter would have been a translation layer between two shapes neither of
   which the API produces. Removing it also means the models can see the extra
   fields (isbn, shelfmark, genre, ...) if they are ever surfaced.
-- **Agency list as fallback** — `GET /v1/agencies`. 101 agencies as JSON with
-  id, name, address, phone, email, urlDomain. Used only when the login page's
-  `var libraries` script cannot be parsed.
+- **Agency list as the primary source** — `GET /v1/agencies`. 101 agencies as
+  JSON with id, name, address, phone, email, urlDomain. Adopted in 0.9.3 (see
+  below); the login page's `var libraries` script is now the fallback.
 
 ### 8.4 Rejected, with reasons
 
-- **Wholesale switch of the library list.** The scraped page is the only source
-  that flags `gatewayf` libraries (5 of them), and it uses municipality names
-  ("København") that the config flow and `municipalityFromCoor` rely on. The API
-  has neither: no gatewayf field anywhere in the spec, and agency names instead
-  ("Københavns Biblioteker"). Switching would silently add 5 unsupported
-  libraries and break the default dropdown selection.
 - **Loans/reservations through the API.** Needs the app credentials for a
   patron session, and `/account` has no `address` (the main sensor's `address`
   attribute is used as a `rejectattr` discriminator in `dashboard.yaml`). Not
   worth the credential risk while FBS works.
 
-### 8.5 Open questions
+### 8.5 The library-list switch (0.9.3)
 
-- The 5 gatewayf libraries now serve a working borchk card+pincode form, so the
-  exclusion may be stale. Worth testing one real account before enabling them.
-- Three agencies have a different `urlDomain` than the host the current regex
-  extracts (Roskilde, Lejre, Mariagerfjord); both hosts were verified to work,
+Two objections blocked the switch at first; both were answered rather than
+accepted, and the switch landed:
+
+- **No gatewayf flag.** Solved by naming the five agencies explicitly in
+  `GATEWAYF_AGENCIES` (Assens `742000`, Odense `746100`, Svendborg `747900`,
+  Nordfyns `748000`, Langeland `748200`). The exclusion list changes only when
+  a library migrates, which is the "list it by hand" tradeoff. Note the filter
+  it replaces tested `registrationUrl`, which is the *account-creation* URL —
+  the login form those five serve is identical to the supported libraries'
+  (borchk card + pincode), so the exclusion may be stale. It was left in place
+  because enabling them needs a real account to confirm; see the open question
+  below.
+- **Agency names instead of municipality names.** Solved by
+  `resolveMunicipality()`: exact match, then `MUNICIPALITY_ALIASES`, then a
+  folded unique-substring match. Against DAWA's 98 Danish municipalities this
+  resolves 92; the 6 misses are the 5 hidden gatewayf libraries and Fanø, which
+  is absent from every source. Only `Thisted` → `Biblioteket i Thy` needs an
+  alias. This also fixed a pre-existing bug: the dropdown default was the raw
+  municipality, so it could never preselect for the 13 municipalities whose
+  library is named differently.
+
+The API omits two agencies the integration supports (Faroese `911116`, and
+Greenlandic `911130`), so `EXTRA_LIBRARIES` adds them back. A plain API
+pass-through would have silently dropped them.
+
+### 8.6 Open questions
+
+- The 5 gatewayf libraries serve a working borchk card+pincode form, so the
+  exclusion may be stale. Worth testing one real account before enabling them;
+  removing an id from `GATEWAYF_AGENCIES` is the only change needed.
+- Fanø has no library in any source (not in the API list, not on the login
+  page), so a Fanø user has nothing to select. Needs a separate investigation.
+- Three agencies have a different `urlDomain` than the host the old regex
+  extracted (Roskilde, Lejre, Mariagerfjord); both hosts were verified to work,
   so this is not urgent.

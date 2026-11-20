@@ -180,16 +180,23 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   A 200 carrying `{"data": null}` is a **failed lookup, not a hit**: it must
   return `{}` and stay out of `_details`, or the caller gets `None` and every
   later lookup for that id returns it too.
-- **`refreshLibraries` prefers the scraped page and falls back to the API.** The
-  login page's `var libraries` script is the only source that flags `gatewayf`
-  libraries and it carries municipality names ("København") that the config
-  flow and `municipalityFromCoor` depend on; `GET /v1/agencies` has neither
-  (agency names, no gatewayf field). `_librariesFromDdf()` is therefore a
-  fallback for when the page layout changes, not a replacement. Do not swap the
-  order without re-checking both of those properties. The page handler catches
-  `ValueError` as well as `AttributeError`/`KeyError`, because a script that is
-  still present but no longer valid JSON raises `JSONDecodeError` — without that
-  the fallback would not run and setup would fail.
+- **The library list comes from the API, and the municipality is resolved by
+  name** (0.9.3). `refreshLibraries()` tries `_librariesFromDdf()`
+  (`GET /v1/agencies`) first and only falls back to `_librariesFromPage()` (the
+  login page's `var libraries` script), raising `CannotConnect` when both fail.
+  The API list carries **no gatewayf flag**, so the five hidden libraries are
+  named by agency id in `GATEWAYF_AGENCIES`; `_excludedLibraries()` re-fetches
+  the list to give them names for the "not supported" message (best effort — a
+  failure there must not break the flow). The API also **omits the Faroese and
+  Greenlandic agencies**, which work, so `EXTRA_LIBRARIES` adds them back; do
+  not replace that with a plain API pass-through. The dropdown is keyed by
+  agency name ("Københavns Biblioteker") while `municipalityFromCoor` returns
+  the municipality ("København"), so `resolveMunicipality()` does exact → alias
+  → folded-unique-substring and returns `None` rather than guessing on an
+  ambiguous match. `MUNICIPALITY_ALIASES` holds the only municipality with no
+  name overlap (`Thisted` → `Biblioteket i Thy`). Both the dropdown default and
+  `validate_input` go through that resolver; an exact dict lookup would break
+  13 of the 98 municipalities.
 - **`renew_id` is exposed only on the loans sensor**, not the overdue sensor —
   overdue items are the same loans, so the id is available if a future renew UX
   needs it.

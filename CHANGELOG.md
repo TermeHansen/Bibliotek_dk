@@ -1,5 +1,27 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.9.3
+
+**Date**: `2026-11-21`
+
+### Changes
+
+* The library list now comes from the Biblo app's JSON agency list instead of
+  scraping the login page's `var libraries` script, so it no longer breaks when
+  that page is redesigned. The scraped page is kept as a fallback.
+* The five libraries the login page flagged as gatewayf (Assens, Langeland,
+  Nordfyns, Odense, Svendborg) stay hidden, now by an explicit agency-id set
+  rather than by inspecting their registration URL.
+* The Faroese (`Býarbókasavnið`) and Greenlandic (`Kalaallit Nunaat`) libraries
+  are absent from the API's list, so they are added explicitly rather than lost.
+* The municipality picker now resolves a municipality to its library by name
+  instead of requiring an exact match. The API names agencies after themselves
+  ("Københavns Biblioteker") while the reverse-geocode lookup returns the
+  municipality ("København"), so the preselected default could not match for 13
+  of the 98 Danish municipalities. `Thisted` is the one case with no name
+  overlap at all and is handled by an explicit alias.
+* No change to which libraries are usable: still 95, with the same 5 hidden.
+
 ## Version 0.9.2
 
 **Date**: `2026-11-21`

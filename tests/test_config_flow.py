@@ -222,13 +222,14 @@ def test_refresh_libraries_missing_script_returns_empty(monkeypatch):
     monkeypatch.setattr(
         config_flow.requests, "Session", lambda: FakeSession(response=response)
     )
-    # The JSON agency list is also unavailable, so there is nothing to return.
+    # The JSON agency list is also unavailable, so neither source can answer.
     monkeypatch.setattr(config_flow, "_librariesFromDdf", lambda: None)
 
-    assert config_flow.refreshLibraries() == ({}, {})
+    with pytest.raises(config_flow.CannotConnect):
+        config_flow.refreshLibraries()
 
 
-# --- the JSON agency list fallback ------------------------------------------
+# --- the JSON agency list (primary source) ----------------------------------
 
 
 def _agency_payload():
@@ -334,9 +335,43 @@ def test_libraries_from_ddf_skips_non_dict_entries(monkeypatch):
         config_flow.requests, "Session", lambda: FakeSession(response=response)
     )
 
-    assert config_flow._librariesFromDdf() == {
-        "N": {CONF_AGENCY: "1", CONF_HOST: "https://h.dk"}
+    libraries = config_flow._librariesFromDdf()
+
+    assert libraries["N"] == {CONF_AGENCY: "1", CONF_HOST: "https://h.dk"}
+    # The two agencies the API omits are always added back.
+    assert "Býarbókasavnið" in libraries
+    assert "Kalaallit Nunaat" in libraries
+
+
+def test_libraries_from_ddf_drops_the_gatewayf_agencies(monkeypatch):
+    # The API list carries no gatewayf flag, so the exclusion is by agency id.
+    payload = {
+        "data": [
+            {"id": "746100", "name": "Odense Bibliotekerne", "urlDomain": "odense.dk"},
+            {"id": "710100", "name": "Københavns Biblioteker", "urlDomain": "kk.dk"},
+        ]
     }
+    response = FakeResponse(text=json.dumps(payload))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    libraries = config_flow._librariesFromDdf()
+
+    assert "Odense Bibliotekerne" not in libraries
+    assert "Københavns Biblioteker" in libraries
+
+
+def test_libraries_from_ddf_returns_none_when_nothing_usable(monkeypatch):
+    # The two extra libraries must not turn an empty API answer into a
+    # two-library list: the caller has to fall back to the page.
+    payload = {"data": [{"id": "746100", "name": "Odense", "urlDomain": "o.dk"}]}
+    response = FakeResponse(text=json.dumps(payload))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    assert config_flow._librariesFromDdf() is None
 
 
 def test_refresh_libraries_falls_back_when_script_is_not_valid_json(monkeypatch):
@@ -362,25 +397,152 @@ def test_refresh_libraries_falls_back_when_script_is_not_valid_json(monkeypatch)
     assert exc == {}
 
 
-def test_refresh_libraries_falls_back_to_ddf_when_page_layout_changes(monkeypatch):
-    # A page whose `var libraries` script is gone used to leave the dropdown
-    # empty; the JSON agency list should fill it instead.
-    response = FakeResponse(text="<html>redesigned</html>")
-    monkeypatch.setattr(
-        config_flow.requests, "Session", lambda: FakeSession(response=response)
-    )
+def test_refresh_libraries_prefers_the_api_over_the_page(monkeypatch):
+    # The API is now the primary source; the page is only a fallback.
     monkeypatch.setattr(
         config_flow,
         "_librariesFromDdf",
         lambda: {"Københavns Biblioteker": {CONF_AGENCY: "710100", CONF_HOST: "h"}},
     )
+    monkeypatch.setattr(
+        config_flow,
+        "_librariesFromPage",
+        lambda: ({"From Page": {CONF_AGENCY: "1", CONF_HOST: "p"}}, {}),
+    )
+    monkeypatch.setattr(config_flow, "_excludedLibraries", dict)
 
     libraries, exc = config_flow.refreshLibraries()
 
-    assert libraries == {
-        "Københavns Biblioteker": {CONF_AGENCY: "710100", CONF_HOST: "h"}
-    }
+    assert list(libraries) == ["Københavns Biblioteker"]
     assert exc == {}
+
+
+def test_refresh_libraries_reports_the_excluded_agencies(monkeypatch):
+    # The API list has no gatewayf flag, so the hidden agencies are named from
+    # a separate lookup; the flow needs their names to explain the gap.
+    monkeypatch.setattr(
+        config_flow,
+        "_librariesFromDdf",
+        lambda: {"Københavns Biblioteker": {CONF_AGENCY: "710100", CONF_HOST: "h"}},
+    )
+    monkeypatch.setattr(
+        config_flow,
+        "_excludedLibraries",
+        lambda: {"Odense Bibliotekerne": {CONF_AGENCY: "746100", CONF_HOST: "o"}},
+    )
+
+    libraries, exc = config_flow.refreshLibraries()
+
+    assert "Københavns Biblioteker" in libraries
+    assert "Odense Bibliotekerne" in exc
+
+
+def test_excluded_libraries_names_the_gatewayf_agencies(monkeypatch):
+    payload = {
+        "data": [
+            {"id": "746100", "name": "Odense Bibliotekerne", "urlDomain": "odense.dk"},
+            {"id": "710100", "name": "Københavns Biblioteker", "urlDomain": "kk.dk"},
+        ]
+    }
+    response = FakeResponse(text=json.dumps(payload))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    excluded = config_flow._excludedLibraries()
+
+    assert list(excluded) == ["Odense Bibliotekerne"]
+    assert excluded["Odense Bibliotekerne"][CONF_AGENCY] == "746100"
+
+
+def test_excluded_libraries_is_empty_when_the_lookup_fails(monkeypatch):
+    # Only the explanatory message is lost, never the flow itself.
+    monkeypatch.setattr(
+        config_flow,
+        "_ddfSession",
+        lambda: FakeSession(
+            response=FakeResponse(
+                status_code=500,
+                raise_exc=requests.exceptions.HTTPError("boom"),
+            )
+        ),
+    )
+
+    assert config_flow._excludedLibraries() == {}
+
+
+def test_refresh_libraries_falls_back_to_the_page_when_the_api_fails(monkeypatch):
+    monkeypatch.setattr(config_flow, "_librariesFromDdf", lambda: None)
+    monkeypatch.setattr(
+        config_flow,
+        "_librariesFromPage",
+        lambda: (
+            {"Test Kommune": {CONF_AGENCY: "710100", CONF_HOST: "h"}},
+            {"Gateway Kommune": {CONF_AGENCY: "720000", CONF_HOST: "g"}},
+        ),
+    )
+
+    libraries, exc = config_flow.refreshLibraries()
+
+    assert list(libraries) == ["Test Kommune"]
+    assert list(exc) == ["Gateway Kommune"]
+
+
+def test_refresh_libraries_raises_when_both_sources_fail(monkeypatch):
+    monkeypatch.setattr(config_flow, "_librariesFromDdf", lambda: None)
+    monkeypatch.setattr(config_flow, "_librariesFromPage", lambda: None)
+
+    with pytest.raises(config_flow.CannotConnect):
+        config_flow.refreshLibraries()
+
+
+# --- resolveMunicipality ----------------------------------------------------
+
+
+def _libs(*names):
+    return {name: {CONF_AGENCY: str(i), CONF_HOST: "h"} for i, name in enumerate(names)}
+
+
+def test_resolve_municipality_exact_match():
+    libs = _libs("København", "Aarhus")
+    assert config_flow.resolveMunicipality("København", libs) == "København"
+
+
+def test_resolve_municipality_by_unique_substring():
+    # The dropdown is keyed by agency name, so an exact lookup can never find
+    # the municipality the reverse-geocode lookup returns.
+    libs = _libs("Københavns Biblioteker", "Aarhus Bibliotekerne")
+    assert (
+        config_flow.resolveMunicipality("København", libs) == "Københavns Biblioteker"
+    )
+    assert config_flow.resolveMunicipality("Aarhus", libs) == "Aarhus Bibliotekerne"
+
+
+def test_resolve_municipality_handles_danish_folding():
+    # "Aa" is an older spelling of "å", so "Aalborg" finds "Aalborg Bibliotekerne"
+    # and the folding also has to cope with æ/ø/å in the agency name.
+    libs = _libs("Aalborg Bibliotekerne", "Århus Bibliotekerne")
+    assert config_flow.resolveMunicipality("Aalborg", libs) == "Aalborg Bibliotekerne"
+    assert config_flow.resolveMunicipality("Aarhus", libs) == "Århus Bibliotekerne"
+
+
+def test_resolve_municipality_uses_the_thisted_alias():
+    # The one municipality whose library name shares no substring with it:
+    # DAWA says "Thisted", the API says "Biblioteket i Thy".
+    libs = _libs("Biblioteket i Thy", "Københavns Biblioteker")
+    assert config_flow.resolveMunicipality("Thisted", libs) == "Biblioteket i Thy"
+
+
+def test_resolve_municipality_returns_none_when_ambiguous():
+    # Guessing between two matches would silently pick the wrong library.
+    libs = _libs("Nord Bibliotek", "Nordfyns Bibliotek")
+    assert config_flow.resolveMunicipality("Nord", libs) is None
+
+
+def test_resolve_municipality_returns_none_for_unknown_or_empty():
+    libs = _libs("Københavns Biblioteker")
+    assert config_flow.resolveMunicipality("Fanø", libs) is None
+    assert config_flow.resolveMunicipality("", libs) is None
 
 
 # --- municipalityFromCoor ---------------------------------------------------

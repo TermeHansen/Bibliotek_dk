@@ -36,7 +36,10 @@ from .const import (
     DDF_APP_VERSION,
     DDF_INSTALLATION_ID,
     DOMAIN,
+    EXTRA_LIBRARIES,
+    GATEWAYF_AGENCIES,
     HEADERS,
+    MUNICIPALITY_ALIASES,
     MUNICIPALITY_LOOKUP_URL,
     UPDATE_INTERVAL,
     URL_DDF_BASE,
@@ -67,14 +70,14 @@ def _ddfSession():
 def _librariesFromDdf():
     """Fetch the agency list as JSON from the Biblo app API.
 
-    Returns the same ``{name: {agency, host}}`` mapping as the scraped page, or
-    ``None`` when the API is unreachable or answers something unexpected, so the
-    caller can fall back to the page.
+    Returns a ``{name: {agency, host}}`` mapping, or ``None`` when the API is
+    unreachable or answers something unexpected, so the caller can fall back to
+    the scraped login page.
 
-    The API lists agencies without a gatewayf flag, and its names are the
-    agencies' own ("Københavns Biblioteker") rather than the municipality names
-    the config flow and the reverse-geocode default use ("København"), so this
-    is a fallback source, not a drop-in replacement.
+    The API lists agencies by their own names ("Københavns Biblioteker") rather
+    than by municipality ("København"), and it carries no gatewayf flag, so the
+    exclusions are applied from ``GATEWAYF_AGENCIES`` and the municipality is
+    resolved separately by ``resolveMunicipality``.
     """
     try:
         r = _ddfSession().get(f"{URL_DDF_BASE}/v1/agencies", timeout=REQUEST_TIMEOUT)
@@ -99,21 +102,39 @@ def _librariesFromDdf():
     for agency in agencies:
         if not isinstance(agency, dict):
             continue
-        name, domain = agency.get("name"), agency.get("urlDomain")
-        if not name or not domain or not agency.get("id"):
+        name, domain, agency_id = (
+            agency.get("name"),
+            agency.get("urlDomain"),
+            agency.get("id"),
+        )
+        if not name or not domain or not agency_id:
+            continue
+        if str(agency_id) in GATEWAYF_AGENCIES:
             continue
         libraries[name] = {
-            CONF_AGENCY: agency["id"],
+            CONF_AGENCY: str(agency_id),
             CONF_HOST: f"https://{domain}",
         }
-    return libraries or None
+
+    # An empty result means the API answered but carried nothing usable, which
+    # is a failure, not a two-library list: return None so the caller falls back
+    # to the scraped page instead of showing a near-empty dropdown.
+    if not libraries:
+        return None
+
+    # The API omits the Faroese and Greenlandic agencies, which the integration
+    # supports, so add them back explicitly rather than losing them silently.
+    for agency_id, name, host in EXTRA_LIBRARIES:
+        libraries.setdefault(name, {CONF_AGENCY: agency_id, CONF_HOST: host})
+
+    return libraries
 
 
-def refreshLibraries() -> tuple[dict, dict]:
-    """Fetch and parse the list of libraries from the fallback login page.
+def _librariesFromPage() -> tuple[dict, dict] | None:
+    """Scrape the login page's ``var libraries`` script.
 
-    Returns a ``(libraries, excLibraries)`` pair: libraries usable through this
-    integration, and those that use ``gatewayf`` and therefore cannot be used.
+    Returns ``(libraries, excLibraries)`` or ``None`` when the page cannot be
+    fetched or parsed, so the caller can fall back to the API.
     """
     session = requests.Session()
     session.headers = HEADERS
@@ -121,17 +142,9 @@ def refreshLibraries() -> tuple[dict, dict]:
     try:
         r = session.get(URL_FALLBACK + URL_LOGIN_PAGE, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
-
-    except requests.exceptions.HTTPError as err:
-        raise CannotConnect from err
-    except requests.exceptions.Timeout as err:
-        _LOGGER.error(f"Timeout fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})")
-        raise CannotConnect from err
-    except requests.exceptions.TooManyRedirects as err:
-        _LOGGER.error(f"Too many redirects fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})")
-        raise CannotConnect from err
     except requests.exceptions.RequestException as err:
-        raise CannotConnect from err
+        _LOGGER.warning(f"Could not load the library list from the login page: {err}")
+        return None
 
     try:
         soup = BS(r.text, "html.parser")
@@ -144,35 +157,119 @@ def refreshLibraries() -> tuple[dict, dict]:
     except (AttributeError, KeyError, ValueError) as err:
         # AttributeError/KeyError: the script is gone or reshaped. ValueError
         # covers json.JSONDecodeError, so a script that is still present but no
-        # longer valid JSON (e.g. a trailing semicolon) also falls back instead
-        # of failing setup outright.
-        _LOGGER.error(
-            f"Error loading the libraries from the fallback url. Error: {err}"
-        )
-        # The page layout changed or is unavailable: the JSON agency list is
-        # the more stable source, so try it before giving up.
-        libraries = _librariesFromDdf()
-        if libraries is None:
-            return {}, {}
-        return libraries, {}
+        # longer valid JSON (e.g. a trailing semicolon) also falls back.
+        _LOGGER.warning(f"Could not parse the library list from the login page: {err}")
+        return None
 
     libraries, excLibraries = {}, {}
-    if "folk" in librariesJSON.keys():
-        for library in librariesJSON["folk"]:
-            p = re.compile(r"^.+?[^\/:](?=[?\/]|$)")
-            m = p.match(library["registrationUrl"])
-            # Only use libraries NOT using gatewayf
-            if "gatewayf" not in library["registrationUrl"]:
-                libraries[library[CONF_NAME]] = {
-                    CONF_AGENCY: library[CONF_BRANCH_ID],
-                    CONF_HOST: m.group(),
-                }
-            else:
-                excLibraries[library[CONF_NAME]] = {
-                    CONF_AGENCY: library[CONF_BRANCH_ID],
-                    CONF_HOST: m.group(),
-                }
+    for library in librariesJSON.get("folk", []):
+        p = re.compile(r"^.+?[^\/:](?=[?\/]|$)")
+        m = p.match(library["registrationUrl"])
+        entry = {
+            CONF_AGENCY: library[CONF_BRANCH_ID],
+            CONF_HOST: m.group() if m else "",
+        }
+        if "gatewayf" in library["registrationUrl"]:
+            excLibraries[library[CONF_NAME]] = entry
+        else:
+            libraries[library[CONF_NAME]] = entry
     return libraries, excLibraries
+
+
+def refreshLibraries() -> tuple[dict, dict]:
+    """Build the ``{name: {agency, host}}`` library list for the config flow.
+
+    The API's agency list is the primary source; the scraped login page is the
+    fallback, because it is a single page whose script can be redesigned away.
+    Returns ``(libraries, excLibraries)``, where the second maps the libraries
+    hidden because they use gatewayf/WAYF logins.
+    """
+    libraries = _librariesFromDdf()
+    if libraries is not None:
+        return libraries, _excludedLibraries()
+
+    page = _librariesFromPage()
+    if page is not None:
+        return page
+
+    # Neither source worked: raise so the flow reports cannot_connect rather
+    # than showing an empty dropdown.
+    raise CannotConnect
+
+
+def _excludedLibraries() -> dict:
+    """Name the agencies hidden by ``GATEWAYF_AGENCIES``.
+
+    The API list carries no gatewayf flag, so the exclusion is by agency id and
+    the names have to be fetched separately to explain the gap to a user whose
+    municipality is affected. Best effort: a failure here must not break the
+    flow, so it only costs the explanatory message.
+    """
+    try:
+        r = _ddfSession().get(f"{URL_DDF_BASE}/v1/agencies", timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        agencies = r.json()["data"]
+    except (
+        requests.exceptions.RequestException,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as err:
+        _LOGGER.debug(f"Could not name the excluded agencies: {err}")
+        return {}
+
+    if not isinstance(agencies, list):
+        return {}
+
+    excluded = {}
+    for agency in agencies:
+        if not isinstance(agency, dict):
+            continue
+        agency_id = agency.get("id")
+        name, domain = agency.get("name"), agency.get("urlDomain")
+        if agency_id and name and str(agency_id) in GATEWAYF_AGENCIES:
+            excluded[name] = {
+                CONF_AGENCY: str(agency_id),
+                CONF_HOST: f"https://{domain}" if domain else "",
+            }
+    return excluded
+
+
+def _fold(text: str) -> str:
+    """Lower-case and strip Danish diacritics, for name matching only."""
+    folded = text.lower().translate(
+        str.maketrans({"æ": "ae", "ø": "o", "å": "a", "ö": "o", "ä": "a", "é": "e"})
+    )
+    # "Aa" is an older spelling of "å", so treat both spellings as one.
+    return folded.replace("aa", "a")
+
+
+def resolveMunicipality(municipality: str, libraries: dict) -> str | None:
+    """Map a municipality name onto a key of ``libraries``.
+
+    The dropdown is keyed by agency name ("Københavns Biblioteker") while the
+    reverse-geocode lookup returns the municipality ("København"), so an exact
+    dict lookup can never preselect the right entry. Resolution order:
+
+    1. an exact name match,
+    2. an explicit ``MUNICIPALITY_ALIASES`` entry,
+    3. the single library whose folded name contains the folded municipality.
+
+    Returns ``None`` when nothing matches or the substring match is ambiguous,
+    so the caller keeps its own default rather than guessing.
+    """
+    if not municipality:
+        return None
+    if municipality in libraries:
+        return municipality
+
+    alias = MUNICIPALITY_ALIASES.get(municipality)
+    if alias in libraries:
+        return alias
+
+    wanted = _fold(municipality)
+    matches = [name for name in libraries if wanted in _fold(name)]
+    return matches[0] if len(matches) == 1 else None
 
 
 def municipalityFromCoor(lon, lat) -> str:
@@ -208,9 +305,18 @@ async def validate_input(
     hass: HomeAssistant, data: dict[str, Any], libraries
 ) -> dict[str, Any]:
 
+    # The dropdown is keyed by agency name, which is not always the municipality
+    # ("København" -> "Københavns Biblioteker"), so resolve before looking up.
+    key = resolveMunicipality(data[CONF_MUNICIPALITY], libraries)
+    if key is None:
+        # Answering a value that is not in the list (a hand-crafted request, or
+        # an agency that disappeared between showing the form and submitting it).
+        # Reported as "unknown" by the flow, like the KeyError this replaced.
+        raise ValueError(f"Unknown library {data[CONF_MUNICIPALITY]!r}")
+
     # Retrieve HOST and UPDATE_INTERVAL
-    data[CONF_HOST] = libraries[data[CONF_MUNICIPALITY]][CONF_HOST]
-    data[CONF_AGENCY] = libraries[data[CONF_MUNICIPALITY]][CONF_AGENCY]
+    data[CONF_HOST] = libraries[key][CONF_HOST]
+    data[CONF_AGENCY] = libraries[key][CONF_AGENCY]
     data[CONF_UPDATE_INTERVAL] = (
         data[CONF_UPDATE_INTERVAL] if data[CONF_UPDATE_INTERVAL] else UPDATE_INTERVAL
     )
@@ -285,6 +391,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         except gatewayf:
             errors["base"] = "gatewayf"
 
+        # The dropdown is keyed by agency name, so preselect the resolved key
+        # rather than the raw municipality (which would be an invalid default
+        # for the 13 municipalities whose library is named differently).
+        defaultLibrary = resolveMunicipality(municipality, libraries)
+
         if user_input is not None:
             try:
                 info = await validate_input(self.hass, user_input, libraries)
@@ -309,7 +420,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Optional(CONF_NAME, default=""): str,
                     vol.Required(
-                        CONF_MUNICIPALITY, default=municipality
+                        CONF_MUNICIPALITY,
+                        default=defaultLibrary or vol.UNDEFINED,
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=list(libraries.keys()),
