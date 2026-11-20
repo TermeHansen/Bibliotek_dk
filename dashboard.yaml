@@ -100,23 +100,50 @@ views:
       type: entities
       title: Biblioteksreserveringer
     filter:
-      template: "{% set data = namespace(books=[]) %}\n{%- set types = {'epub': \"\U0001F4DC\",\n
-        \           'audiobook': '\U0001F3A7', 'podcast': '\U0001F399️',\n            'zip':
-        \"\U0001F3A7\",\n            'bog': \"\U0001F4D6\",\n            'dvd': \"\U0001F4C0\",\n
-        \           'billedbog': \"\U0001F9D2\",\n            'tegneserie': \"\U0001F4D5\"}
-        -%}\n{% set libraryUsers = states.sensor\n  | selectattr('attributes.reservations',
-        'defined')\n  | rejectattr('attributes.address', 'defined')\n  | rejectattr('state',
-        'eq', '0')\n  | map(attribute='entity_id')\n  | list %}\n{% for libraryUser
-        in libraryUsers %}{% set USER = state_attr(libraryUser, 'user') %} {{\n   {\n
-        \    'type': 'section',\n     'label': USER,\n   }\n  }}, {% set data.books
-        = state_attr(libraryUser,'reservations')%}{% set BOOKS = data.books|list %}{%-
-        for book in BOOKS|sort(attribute='expire_date') -%}\n   {%- set DUEDATE =
-        as_datetime(book.expire_date) -%}\n   {%- set IMAGE = book.cover -%}\n   {%-
-        set AUTHOR = book.creators -%}{{\n   {\n     'type': 'custom:template-entity-row',\n
-        \    'state': time_until(DUEDATE)|default(0),\n     'name': (types.get(book.type,
-        '\U0001F4D6')+book.title)|truncate(67,true,'…'),\n     'secondary': AUTHOR,\n
-        \    'icon': 'mdi:book-open-page-variant',\n     'image': IMAGE,\n    }\n
-        \  }}, {%- endfor %}{% endfor %}"
+      template: |-
+        {% if accounts is not defined %}
+          {% set source = namespace(accounts=[]) %}
+          {% for sensor in expand(integration_entities('bibliotek_dk')) %}
+            {% if sensor.attributes.reservations is defined
+                  and sensor.attributes.address is not defined
+                  and has_value(sensor.entity_id) %}
+              {% set source.accounts = source.accounts + [{
+                'user': sensor.attributes.user,
+                'entity': sensor.entity_id,
+                'reservations': sensor.attributes.reservations or []
+              }] %}
+            {% endif %}
+          {% endfor %}
+          {% set accounts = source.accounts %}
+        {% endif %}
+        {% set ns = namespace(rows=[]) %}
+        {% set types = {'epub': '📜', 'audiobook': '🎧', 'podcast': '🎙️',
+                        'zip': '🎧', 'bog': '📖', 'dvd': '📀',
+                        'billedbog': '🧒', 'tegneserie': '📕'} %}
+        {% for account in accounts %}
+          {% if account.reservations %}
+            {% set ns.rows = ns.rows + [{'type': 'section', 'label': account.user}] %}
+            {% for book in account.reservations %}
+              {% set queue = book.queue_number | default(none) %}
+              {% set due = as_datetime(book.expire_date | default(none), none) %}
+              {% set secondary = [book.creators | default('', true)] if book.creators | default('', true) else [] %}
+              {% if due %}
+                {% set secondary = secondary + ['Forventet: ' ~ time_until(due)] %}
+              {% endif %}
+              {% set ns.rows = ns.rows + [{
+                'type': 'custom:template-entity-row',
+                'entity': account.entity,
+                'name': types.get(book.type | default(''), '📖') ~ (book.title | default('Titel ukendt', true)),
+                'secondary': secondary | join(' · '),
+                'state': 'Kø nr. ' ~ queue if queue is number and queue > 0 else 'Kø ikke oplyst',
+                'icon': 'mdi:book-clock',
+                'image': book.cover | default(none),
+                'tap_action': {'action': 'none'}
+              }] %}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.rows }}
     sort:
       reverse: false
     else:
@@ -173,6 +200,7 @@ views:
       title: Bibliotekslån
     filter:
       template: |-
+        {% set types = {'epub': '📜', 'ebook': '📜', 'audiobook': '🎧', 'zip': '🎧', 'podcast': '🎙️', 'bog': '📖', 'paper_book': '📖', 'dvd': '📀', 'billedbog': '🧒', 'tegneserie': '📕'} %}
         {% set ns = namespace(rows=[]) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
           {% if sensor.attributes.loans is defined
@@ -217,7 +245,7 @@ views:
                 {% set ns.rows = ns.rows + [{
                   'type': 'custom:template-entity-row',
                   'entity': sensor.entity_id,
-                  'name': book.title,
+                  'name': types.get(book.type | default(''), '📖') ~ ' ' ~ (book.title | default('Titel ukendt', true)),
                   'secondary': (book.creators or '') ~ ' · ' ~ due_text,
                   'state': 'Forny' if can_renew else due_text,
                   'icon': 'mdi:book-refresh' if can_renew else 'mdi:book-open-page-variant',

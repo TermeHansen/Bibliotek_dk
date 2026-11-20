@@ -6,6 +6,8 @@
 
 ### Changes
 
+* Restore material-type symbols before loan titles, including when cover art is
+  present. Show reservation queue positions in the dashboard example.
 * Skip malformed individual Biblo loans/reservations while publishing valid
   items (IMPROVEMENT_PLAN.md section 7.2). Validate metadata before caching it
   so malformed responses are retried (section 3).
@@ -25,6 +27,8 @@
 
 ### Changes
 
+* Normalize Biblo timestamps to local time so remaining loan days are correct
+  around midnight and daylight-saving changes.
 * Preserve optional Biblo reservation queue positions as `queue_number`.
 * Expose `other_digital_loans` for types outside e-books/audiobooks, preserving
   the original material type and reconciling the digital format counts.
@@ -40,6 +44,19 @@
 * Expose Biblio quotas as `digital_loans_quota` on the general sensor. Shared
   allowances are not presented as independent e-book and audiobook quotas.
 * See `BIBLO.md` for contract sources, limitations and manual verification.
+
+## Version 0.8.2
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Sort overdue loans by due date and fees by creation date, oldest first,
+  then by title. Undated items sort last; missing titles are supported.
+* Correct the internal `get_debts` flag spelling and replace a misleading
+  loan-date comment (IMPROVEMENT_PLAN.md section 7.8). Sensor IDs, attributes
+  and configuration keys are unchanged.
+
 
 ## Version 0.8.1
 

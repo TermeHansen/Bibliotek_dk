@@ -6,7 +6,6 @@ The adapter accepts the same login.bib.dk end-user token as the physical API.
 
 from __future__ import annotations
 
-from datetime import timezone
 import logging
 from urllib.parse import quote
 
@@ -23,10 +22,10 @@ class BiblioError(Exception):
 
 
 def _date(value):
-    """Use naive UTC, matching the facade's existing material dates."""
+    """Use local wall time, matching physical dates and the sensor day count."""
     result = parser.parse(value)
     if result.tzinfo is not None:
-        result = result.astimezone(timezone.utc).replace(tzinfo=None)
+        result = result.astimezone().replace(tzinfo=None)
     return result
 
 

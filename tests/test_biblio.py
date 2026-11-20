@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from custom_components.bibliotek_dk.biblio import BiblioClient, BiblioError
+from custom_components.bibliotek_dk.biblio import BiblioClient, BiblioError, _date
 from custom_components.bibliotek_dk.library_api import Library
 
 
@@ -47,8 +47,8 @@ def test_loans_follow_cursor_and_keep_digital_loans_out_of_renew_service():
     ]
     loans = lib._biblio.loans()
     assert len(loans) == 2
-    assert loans[0].loanDate == dt.datetime(2026, 11, 17, 9)
-    assert loans[0].expireDate == dt.datetime(2026, 12, 17, 10)
+    assert loans[0].loanDate == _local("2026-11-17T09:00:00+00:00")
+    assert loans[0].expireDate == _local("2026-12-17T10:00:00+00:00")
     assert loans[0].title == "A digital book"
     assert loans[0].creators == "A. Author"
     assert loans[0].renewId is None
@@ -139,7 +139,7 @@ def test_reservations_map_available_offers_and_cache_metadata():
     assert len(waiting) == len(ready) == 1
     assert waiting[0].title == ready[0].title == "An audiobook"
     assert waiting[0].queueNumber == 1
-    assert ready[0].pickupDate == dt.datetime(2026, 11, 20, 9)
+    assert ready[0].pickupDate == _local("2026-11-20T09:00:00+00:00")
     assert ready[0].pickupLibrary == "biblo.dk"
     assert lib._get.call_count == 2
 
@@ -339,3 +339,28 @@ def test_failed_digital_refresh_keeps_other_material_count():
     lib._get.return_value = response(status=503)
     lib._fetchBiblioLoans()
     assert lib.user.otherDigitalLoans == 3
+
+
+def _local(value):
+    return dt.datetime.fromisoformat(value).astimezone().replace(tzinfo=None)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-11-20T23:30:00+00:00",
+        "2026-07-20T22:30:00+00:00",
+        "2026-03-29T00:30:00+00:00",
+        "2026-03-29T01:30:00+00:00",
+        "2026-10-25T00:30:00+00:00",
+        "2026-10-25T01:30:00+00:00",
+        "2026-11-21T00:30:00+01:00",
+    ],
+)
+def test_biblio_dates_use_local_calendar(value):
+    assert _date(value) == _local(value)
+    assert _date(value).tzinfo is None
+
+
+def test_biblio_date_without_timezone_keeps_calendar_date():
+    assert _date("2026-11-21") == dt.datetime(2026, 11, 21)

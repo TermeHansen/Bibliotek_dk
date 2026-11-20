@@ -9,6 +9,7 @@ card:
   title: Bibliotekslån
 filter:
   template: |-
+    {% set types = {'epub': '📜', 'ebook': '📜', 'audiobook': '🎧', 'zip': '🎧', 'podcast': '🎙️', 'bog': '📖', 'paper_book': '📖', 'dvd': '📀', 'billedbog': '🧒', 'tegneserie': '📕'} %}
     {% set ns = namespace(rows=[]) %}
     {% for sensor in expand(integration_entities('bibliotek_dk')) %}
       {% if sensor.attributes.loans is defined
@@ -53,7 +54,7 @@ filter:
             {% set ns.rows = ns.rows + [{
               'type': 'custom:template-entity-row',
               'entity': sensor.entity_id,
-              'name': book.title,
+              'name': types.get(book.type | default(''), '📖') ~ ' ' ~ (book.title | default('Titel ukendt', true)),
               'secondary': (book.creators or '') ~ ' · ' ~ due_text,
               'state': 'Forny' if can_renew else due_text,
               'icon': 'mdi:book-refresh' if can_renew else 'mdi:book-open-page-variant',
