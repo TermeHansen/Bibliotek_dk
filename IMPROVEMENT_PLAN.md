@@ -253,7 +253,7 @@ silently vanished from the result. Now seeded with every requested id
 `(AttributeError, KeyError)` handler did not catch, failing the whole profile
 refresh. The handler now also catches `TypeError`/`ValueError`.
 
-### 7.7 Hand-rolled coordinator wiring — LOW — DONE (0.8.2)
+### 7.7 Hand-rolled coordinator wiring — LOW — DONE (0.8.3)
 
 `BibliotekBaseSensor` re-implements what HA's `CoordinatorEntity` provides
 (`should_poll`, `available`, listener wiring); the original Section 4 item even
