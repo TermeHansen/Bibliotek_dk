@@ -248,6 +248,19 @@ def test_get_details_unexpected_payload_is_not_cached():
     assert "faust-1" not in lib._details
 
 
+def test_get_details_null_data_is_a_failed_lookup():
+    # Regression: a 200 carrying {"data": null} used to be cached as a hit, so
+    # the caller got None instead of {} and every later lookup for that id
+    # returned it too — blanking the item's details for the process lifetime.
+    session = _FakeSession(get=_FakeResponse(payload={"data": None}))
+    lib = _ready_library(session)
+
+    assert lib._getDetails("faust-1") == {}
+    assert "faust-1" not in lib._details
+    # The caller keeps the loan, which simply has no material details.
+    assert libraryLoan(lib._getDetails("faust-1")).title is None
+
+
 def test_get_details_sends_client_hints_and_no_bearer_token():
     # The record endpoint is anonymous: sending a patron token would couple a
     # public lookup to the session and leak it to a third-party host.

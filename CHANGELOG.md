@@ -18,6 +18,11 @@
   expected anywhere.
 * A bare faust is expanded to its `870970-basis:` record id, which is the form
   the record endpoint requires.
+* Malformed API answers no longer break setup or hide items: a record response
+  of `{"data": null}` is treated as a failed lookup (the loan, reservation or
+  fee is kept without details), and the agency list tolerates a null payload,
+  entries without an id, and non-dict entries by falling back to the scraped
+  page instead of raising.
 * The config flow falls back to the Biblo API's JSON agency list when the login
   page's `var libraries` script cannot be parsed, so a redesign of that page no
   longer leaves the library dropdown empty. The scraped page stays the primary

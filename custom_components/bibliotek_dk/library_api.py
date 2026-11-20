@@ -297,10 +297,17 @@ class Library:
             try:
                 data = res.json()["data"]
             except (KeyError, TypeError, ValueError) as err:
-                # An unexpected payload is a failed lookup, not a crash: the
-                # loan keeps its dates and loses only its details.
+                data = None
+                err_msg = err
+            else:
+                err_msg = None
+            # A 200 carrying `{"data": null}` is a failed lookup, not a hit: the
+            # models iterate the payload, so caching a non-dict would both blank
+            # the details and poison the cache for the rest of the process.
+            if not isinstance(data, dict):
                 _LOGGER.warning(
-                    f"({self.user.date}) Unexpected record payload for '{faust}': {err}"
+                    f"({self.user.date}) Unexpected record payload for '{faust}': "
+                    f"{err_msg or data!r}"
                 )
                 data = {}
             else:

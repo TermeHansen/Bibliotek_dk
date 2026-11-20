@@ -297,6 +297,71 @@ def test_libraries_from_ddf_returns_none_on_unexpected_payload(monkeypatch):
     assert config_flow._librariesFromDdf() is None
 
 
+def test_libraries_from_ddf_returns_none_when_data_is_null(monkeypatch):
+    # A 200 with {"data": null} is a failed lookup, not an empty list: iterating
+    # it used to raise TypeError out of setup instead of returning None.
+    response = FakeResponse(text=json.dumps({"data": None}))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    assert config_flow._librariesFromDdf() is None
+
+
+def test_libraries_from_ddf_skips_an_entry_without_an_id(monkeypatch):
+    # name and urlDomain present but no id raised KeyError out of setup.
+    payload = {
+        "data": [
+            {"name": "No Id", "urlDomain": "noid.dk"},
+            {"id": "710100", "name": "Københavns Biblioteker", "urlDomain": "kk.dk"},
+        ]
+    }
+    response = FakeResponse(text=json.dumps(payload))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    libraries = config_flow._librariesFromDdf()
+
+    assert "No Id" not in libraries
+    assert libraries["Københavns Biblioteker"][CONF_AGENCY] == "710100"
+
+
+def test_libraries_from_ddf_skips_non_dict_entries(monkeypatch):
+    payload = {"data": ["not-an-agency", {"id": "1", "name": "N", "urlDomain": "h.dk"}]}
+    response = FakeResponse(text=json.dumps(payload))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    assert config_flow._librariesFromDdf() == {
+        "N": {CONF_AGENCY: "1", CONF_HOST: "https://h.dk"}
+    }
+
+
+def test_refresh_libraries_falls_back_when_script_is_not_valid_json(monkeypatch):
+    # Regression: a script that is still present but no longer parses (a trailing
+    # semicolon, say) raised JSONDecodeError past the handler and failed setup
+    # instead of trying the agency API.
+    broken = '<html><script>var libraries = {"folk": []};</script></html>'
+    response = FakeResponse(text=broken)
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+    monkeypatch.setattr(
+        config_flow,
+        "_librariesFromDdf",
+        lambda: {"Københavns Biblioteker": {CONF_AGENCY: "710100", CONF_HOST: "h"}},
+    )
+
+    libraries, exc = config_flow.refreshLibraries()
+
+    assert libraries == {
+        "Københavns Biblioteker": {CONF_AGENCY: "710100", CONF_HOST: "h"}
+    }
+    assert exc == {}
+
+
 def test_refresh_libraries_falls_back_to_ddf_when_page_layout_changes(monkeypatch):
     # A page whose `var libraries` script is gone used to leave the dropdown
     # empty; the JSON agency list should fill it instead.

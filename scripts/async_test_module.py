@@ -152,6 +152,8 @@ def credential_candidates(args: argparse.Namespace) -> list[tuple[str, str, str]
     Every usable line of the secrets file is a candidate: one run reports every
     account, and a rejected one does not stop the rest. Precedence: the flags
     win outright, then the secrets file, then the environment, then a prompt.
+    A ``--pincode`` on its own overrides the stored PIN for the candidates
+    rather than being ignored, so a corrected PIN is the one actually sent.
     """
     # A relative --secrets path is taken from the repo root, so the default
     # works regardless of the working directory.
@@ -166,8 +168,19 @@ def credential_candidates(args: argparse.Namespace) -> list[tuple[str, str, str]
         wanted = digits(args.user_id)
         entries = [entry for entry in entries if digits(entry[1][0]) == wanted]
 
+    # A PIN given alone overrides the stored one for every candidate. Without
+    # this the supplied value was silently ignored, so a developer correcting a
+    # stale PIN still sent the saved one — and a rejected PIN can lock the
+    # account. The user id is never overridden, so no id is paired with a PIN
+    # that was not meant for it.
+    override = digits(args.pincode) if args.pincode is not None else None
+
     candidates = [
-        (digits(fields[0]), digits(fields[1]), f"line {number} of {args.secrets}")
+        (
+            digits(fields[0]),
+            override or digits(fields[1]),
+            f"line {number} of {args.secrets}",
+        )
         for number, fields in entries
     ]
     if candidates:
@@ -187,9 +200,19 @@ def credential_candidates(args: argparse.Namespace) -> list[tuple[str, str, str]
 
 
 async def close_library(library: Library) -> None:
-    """End the session server-side and drop the HTTP session, as unload does."""
-    await asyncio.to_thread(library.logout)
-    await asyncio.to_thread(library.session.close)
+    """End the session server-side and drop the HTTP session, as unload does.
+
+    Never raises. ``logout()`` is a network call and this runs in a ``finally``,
+    so an exception here would replace the account's result — masking a login
+    error or a good snapshot — and stop the remaining accounts in the run. The
+    local session is closed even when the server-side logout fails.
+    """
+    try:
+        await asyncio.to_thread(library.logout)
+    except Exception as err:
+        _LOGGER.warning(f"Ignoring logout error: {err}")
+    finally:
+        await asyncio.to_thread(library.session.close)
 
 
 def conflicting_pincodes(

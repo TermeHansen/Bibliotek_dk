@@ -177,13 +177,19 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   FBS reports a bare faust (`39134543`) and the API answers 400 for that, so
   `_recordId()` expands it to `870970-basis:<faust>`; an id that already
   contains `:` is left alone. This closed plan 7.9 (no staging-host fallback).
+  A 200 carrying `{"data": null}` is a **failed lookup, not a hit**: it must
+  return `{}` and stay out of `_details`, or the caller gets `None` and every
+  later lookup for that id returns it too.
 - **`refreshLibraries` prefers the scraped page and falls back to the API.** The
   login page's `var libraries` script is the only source that flags `gatewayf`
   libraries and it carries municipality names ("København") that the config
   flow and `municipalityFromCoor` depend on; `GET /v1/agencies` has neither
   (agency names, no gatewayf field). `_librariesFromDdf()` is therefore a
   fallback for when the page layout changes, not a replacement. Do not swap the
-  order without re-checking both of those properties.
+  order without re-checking both of those properties. The page handler catches
+  `ValueError` as well as `AttributeError`/`KeyError`, because a script that is
+  still present but no longer valid JSON raises `JSONDecodeError` — without that
+  the fallback would not run and setup would fail.
 - **`renew_id` is exposed only on the loans sensor**, not the overdue sensor —
   overdue items are the same loans, so the id is available if a future renew UX
   needs it.

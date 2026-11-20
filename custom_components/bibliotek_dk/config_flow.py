@@ -89,10 +89,18 @@ def _librariesFromDdf():
         _LOGGER.warning(f"Could not load libraries from the Biblo API: {err}")
         return None
 
+    # A 200 with `{"data": null}` is a failed lookup, not an empty list: iterate
+    # only a real sequence, and skip any entry missing an id rather than raising.
+    if not isinstance(agencies, list):
+        _LOGGER.warning(f"Unexpected agency payload from the Biblo API: {agencies!r}")
+        return None
+
     libraries = {}
     for agency in agencies:
+        if not isinstance(agency, dict):
+            continue
         name, domain = agency.get("name"), agency.get("urlDomain")
-        if not name or not domain:
+        if not name or not domain or not agency.get("id"):
             continue
         libraries[name] = {
             CONF_AGENCY: agency["id"],
@@ -133,7 +141,11 @@ def refreshLibraries() -> tuple[dict, dict]:
                 string=re.compile(r"^var libraries = (.)", re.MULTILINE | re.DOTALL),
             ).string.replace("var libraries = ", "")
         )
-    except (AttributeError, KeyError) as err:
+    except (AttributeError, KeyError, ValueError) as err:
+        # AttributeError/KeyError: the script is gone or reshaped. ValueError
+        # covers json.JSONDecodeError, so a script that is still present but no
+        # longer valid JSON (e.g. a trailing semicolon) also falls back instead
+        # of failing setup outright.
         _LOGGER.error(
             f"Error loading the libraries from the fallback url. Error: {err}"
         )
