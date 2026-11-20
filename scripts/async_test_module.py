@@ -51,6 +51,7 @@ from requests.exceptions import RequestException  # noqa: E402
 from custom_components.bibliotek_dk.config_flow import (  # noqa: E402
     CannotConnect,
     refreshLibraries,
+    resolveMunicipality,
 )
 from custom_components.bibliotek_dk.const import (  # noqa: E402
     CONF_AGENCY,
@@ -111,17 +112,21 @@ def parse_args() -> argparse.Namespace:
 
 
 def match_municipality(name: str, libraries: dict) -> str | None:
-    """Resolve a user-typed name against the scraped library list.
+    """Resolve a user-typed name against the library list.
 
-    Exact match wins; otherwise a unique prefix or substring match is accepted,
-    so ``aarhus`` and ``Aarhu`` both find ``Aarhus``, and ``kobenhavn`` finds
-    ``København``.
+    The config flow's resolver runs first, so a municipality works even when the
+    agency is named differently (``Thisted`` -> ``Biblioteket i Thy``). It only
+    knows the alias table and whole-word containment, so this adds what a
+    developer typing by hand needs: an exact match, then a unique prefix or
+    substring match, so ``aarhus`` and ``Aarhu`` both find ``Aarhus``.
     """
+    resolved = resolveMunicipality(name, libraries)
+    if resolved is not None:
+        return resolved
+
     wanted = fold(name)
-    for key in libraries:
-        if fold(key) == wanted:
-            return key
     for matches in (
+        [key for key in libraries if fold(key) == wanted],
         [key for key in libraries if fold(key).startswith(wanted)],
         [key for key in libraries if wanted in fold(key)],
     ):
