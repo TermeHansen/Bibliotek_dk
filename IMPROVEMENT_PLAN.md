@@ -67,8 +67,8 @@ and `UTC`). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 Config-flow HTTP parsing is now covered too: `refreshLibraries` and
 `municipalityFromCoor` were extracted to module-level helpers and are tested with
-a fake `requests` session (success, gatewayf split, HTTP error, timeout, missing
-script). Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
+a fake `requests` session (success, HTTP error, timeout, empty agency payload).
+Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 
 ---
 
@@ -355,9 +355,9 @@ breakage when DBC rotates them.
   adapter would have been a translation layer between two shapes neither of
   which the API produces. Removing it also means the models can see the extra
   fields (isbn, shelfmark, genre, ...) if they are ever surfaced.
-- **Agency list as the primary source** — `GET /v1/agencies`. 101 agencies as
-  JSON with id, name, address, phone, email, urlDomain. Adopted in 0.9.3 (see
-  below); the login page's `var libraries` script is now the fallback.
+- **Agency list** — `GET /v1/agencies`. 98 agencies as JSON with id, name,
+  address, phone, email, urlDomain. Adopted in 0.9.3 as the only source (see
+  below); the login page's `var libraries` scrape is deleted.
 
 ### 8.4 Rejected, with reasons
 
@@ -371,21 +371,23 @@ breakage when DBC rotates them.
 Two objections blocked the switch at first; both were answered rather than
 accepted, and the switch landed:
 
-- **No gatewayf flag.** Solved by naming the five agencies explicitly in
-  `GATEWAYF_AGENCIES` (Assens `742000`, Odense `746100`, Svendborg `747900`,
-  Nordfyns `748000`, Langeland `748200`). The exclusion list changes only when
-  a library migrates, which is the "list it by hand" tradeoff. Note the filter
-  it replaces tested `registrationUrl`, which is the *account-creation* URL —
-  the login form those five serve is identical to the supported libraries'
-  (borchk card + pincode), so the exclusion may be stale. It was left in place
-  because enabling them needs a real account to confirm; see the open question
-  below.
+- **No gatewayf flag.** The scrape's exclusion tested `registrationUrl`, which
+  is the *account-creation* URL, not the login form. The five agencies it hid
+  (Assens `742000`, Odense `746100`, Svendborg `747900`, Nordfyns `748000`,
+  Langeland `748200`) serve the identical borchk login form (card + pincode), so
+  the exclusion was stale. **Decision: activate all five** rather than carry the
+  ids over to the API list as a hand-maintained set — the owner will ask users in
+  those municipalities to test during pre-release. There is no `GATEWAYF_AGENCIES`
+  set any more, and the `gatewayf` config-flow error is gone with it.
 - **Agency names instead of municipality names.** Solved by
   `resolveMunicipality()`: exact match, then `MUNICIPALITY_ALIASES`, then a
-  folded unique-substring match. Against DAWA's 98 Danish municipalities this
-  resolves 92; the 6 misses are the 5 hidden gatewayf libraries and Fanø, which
-  is absent from every source. Only `Thisted` → `Biblioteket i Thy` needs an
-  alias. This also fixed a pre-existing bug: the dropdown default was the raw
+  folded unique-substring match. All five formerly hidden municipalities now
+  resolve by name (Assens → `AssensBibliotekerne`, Odense → `Odense
+  Bibliotekerne`, Svendborg → `Svendborg Bibliotek`, Nordfyns → `Bibliotek og
+  Borgerservice Nordfyns Kommune`, Langeland → `Langeland Bibliotek`). Against
+  DAWA's 98 Danish municipalities the resolver now misses only Fanø, which is
+  absent from every source. Only `Thisted` → `Biblioteket i Thy` needs an alias.
+  This also fixed a pre-existing bug: the dropdown default was the raw
   municipality, so it could never preselect for the 13 municipalities whose
   library is named differently.
 
@@ -393,11 +395,16 @@ The API omits two agencies the integration supports (Faroese `911116`, and
 Greenlandic `911130`), so `EXTRA_LIBRARIES` adds them back. A plain API
 pass-through would have silently dropped them.
 
+The scrape itself is deleted rather than kept as a fallback: it depended on the
+page's HTML shape and a `var libraries` script, which is exactly the coupling the
+JSON endpoint removes. A failed agency lookup now reports `cannot_connect`.
+
 ### 8.6 Open questions
 
-- The 5 gatewayf libraries serve a working borchk card+pincode form, so the
-  exclusion may be stale. Worth testing one real account before enabling them;
-  removing an id from `GATEWAYF_AGENCIES` is the only change needed.
+- The five formerly hidden libraries are enabled on the owner's instruction and
+  need real-account confirmation from users in Assens, Odense, Svendborg,
+  Nordfyns and Langeland during pre-release. If one turns out not to work, the
+  fix is a targeted exclusion, not a return to the scrape.
 - Fanø has no library in any source (not in the API list, not on the login
   page), so a Fanø user has nothing to select. Needs a separate investigation.
 - Three agencies have a different `urlDomain` than the host the old regex

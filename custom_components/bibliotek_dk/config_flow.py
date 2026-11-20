@@ -9,7 +9,6 @@ from homeassistant.helpers import selector
 from homeassistant import config_entries
 
 from .library_api import Library
-from bs4 import BeautifulSoup as BS
 from typing import Any
 
 import json
@@ -20,7 +19,6 @@ import voluptuous as vol
 
 from .const import (
     CONF_AGENCY,
-    CONF_BRANCH_ID,
     CONF_HOST,
     CONF_MUNICIPALITY,
     CONF_NAME,
@@ -37,14 +35,11 @@ from .const import (
     DDF_INSTALLATION_ID,
     DOMAIN,
     EXTRA_LIBRARIES,
-    GATEWAYF_AGENCIES,
     HEADERS,
     MUNICIPALITY_ALIASES,
     MUNICIPALITY_LOOKUP_URL,
     UPDATE_INTERVAL,
     URL_DDF_BASE,
-    URL_FALLBACK,
-    URL_LOGIN_PAGE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,13 +66,12 @@ def _librariesFromDdf():
     """Fetch the agency list as JSON from the Biblo app API.
 
     Returns a ``{name: {agency, host}}`` mapping, or ``None`` when the API is
-    unreachable or answers something unexpected, so the caller can fall back to
-    the scraped login page.
+    unreachable or answers something unexpected, so the caller can report
+    ``cannot_connect`` instead of showing a broken dropdown.
 
     The API lists agencies by their own names ("Københavns Biblioteker") rather
-    than by municipality ("København"), and it carries no gatewayf flag, so the
-    exclusions are applied from ``GATEWAYF_AGENCIES`` and the municipality is
-    resolved separately by ``resolveMunicipality``.
+    than by municipality ("København"), so the municipality is resolved
+    separately by ``resolveMunicipality``.
     """
     try:
         r = _ddfSession().get(f"{URL_DDF_BASE}/v1/agencies", timeout=REQUEST_TIMEOUT)
@@ -109,16 +103,14 @@ def _librariesFromDdf():
         )
         if not name or not domain or not agency_id:
             continue
-        if str(agency_id) in GATEWAYF_AGENCIES:
-            continue
         libraries[name] = {
             CONF_AGENCY: str(agency_id),
             CONF_HOST: f"https://{domain}",
         }
 
     # An empty result means the API answered but carried nothing usable, which
-    # is a failure, not a two-library list: return None so the caller falls back
-    # to the scraped page instead of showing a near-empty dropdown.
+    # is a failure, not a two-library list: return None so the caller reports
+    # cannot_connect instead of showing a near-empty dropdown.
     if not libraries:
         return None
 
@@ -130,109 +122,19 @@ def _librariesFromDdf():
     return libraries
 
 
-def _librariesFromPage() -> tuple[dict, dict] | None:
-    """Scrape the login page's ``var libraries`` script.
-
-    Returns ``(libraries, excLibraries)`` or ``None`` when the page cannot be
-    fetched or parsed, so the caller can fall back to the API.
-    """
-    session = requests.Session()
-    session.headers = HEADERS
-
-    try:
-        r = session.get(URL_FALLBACK + URL_LOGIN_PAGE, timeout=REQUEST_TIMEOUT)
-        r.raise_for_status()
-    except requests.exceptions.RequestException as err:
-        _LOGGER.warning(f"Could not load the library list from the login page: {err}")
-        return None
-
-    try:
-        soup = BS(r.text, "html.parser")
-        librariesJSON = json.loads(
-            soup.find(
-                "script",
-                string=re.compile(r"^var libraries = (.)", re.MULTILINE | re.DOTALL),
-            ).string.replace("var libraries = ", "")
-        )
-    except (AttributeError, KeyError, ValueError) as err:
-        # AttributeError/KeyError: the script is gone or reshaped. ValueError
-        # covers json.JSONDecodeError, so a script that is still present but no
-        # longer valid JSON (e.g. a trailing semicolon) also falls back.
-        _LOGGER.warning(f"Could not parse the library list from the login page: {err}")
-        return None
-
-    libraries, excLibraries = {}, {}
-    for library in librariesJSON.get("folk", []):
-        p = re.compile(r"^.+?[^\/:](?=[?\/]|$)")
-        m = p.match(library["registrationUrl"])
-        entry = {
-            CONF_AGENCY: library[CONF_BRANCH_ID],
-            CONF_HOST: m.group() if m else "",
-        }
-        if "gatewayf" in library["registrationUrl"]:
-            excLibraries[library[CONF_NAME]] = entry
-        else:
-            libraries[library[CONF_NAME]] = entry
-    return libraries, excLibraries
-
-
-def refreshLibraries() -> tuple[dict, dict]:
+def refreshLibraries() -> dict:
     """Build the ``{name: {agency, host}}`` library list for the config flow.
 
-    The API's agency list is the primary source; the scraped login page is the
-    fallback, because it is a single page whose script can be redesigned away.
-    Returns ``(libraries, excLibraries)``, where the second maps the libraries
-    hidden because they use gatewayf/WAYF logins.
+    The API's agency list is the only source. The old login-page scrape is gone:
+    it depended on the page's HTML shape and a `var libraries` script, which is
+    exactly the coupling this endpoint removes.
     """
     libraries = _librariesFromDdf()
-    if libraries is not None:
-        return libraries, _excludedLibraries()
-
-    page = _librariesFromPage()
-    if page is not None:
-        return page
-
-    # Neither source worked: raise so the flow reports cannot_connect rather
-    # than showing an empty dropdown.
-    raise CannotConnect
-
-
-def _excludedLibraries() -> dict:
-    """Name the agencies hidden by ``GATEWAYF_AGENCIES``.
-
-    The API list carries no gatewayf flag, so the exclusion is by agency id and
-    the names have to be fetched separately to explain the gap to a user whose
-    municipality is affected. Best effort: a failure here must not break the
-    flow, so it only costs the explanatory message.
-    """
-    try:
-        r = _ddfSession().get(f"{URL_DDF_BASE}/v1/agencies", timeout=REQUEST_TIMEOUT)
-        r.raise_for_status()
-        agencies = r.json()["data"]
-    except (
-        requests.exceptions.RequestException,
-        KeyError,
-        TypeError,
-        ValueError,
-    ) as err:
-        _LOGGER.debug(f"Could not name the excluded agencies: {err}")
-        return {}
-
-    if not isinstance(agencies, list):
-        return {}
-
-    excluded = {}
-    for agency in agencies:
-        if not isinstance(agency, dict):
-            continue
-        agency_id = agency.get("id")
-        name, domain = agency.get("name"), agency.get("urlDomain")
-        if agency_id and name and str(agency_id) in GATEWAYF_AGENCIES:
-            excluded[name] = {
-                CONF_AGENCY: str(agency_id),
-                CONF_HOST: f"https://{domain}" if domain else "",
-            }
-    return excluded
+    if libraries is None:
+        # Raise so the flow reports cannot_connect rather than showing an empty
+        # dropdown that looks like a successful setup.
+        raise CannotConnect
+    return libraries
 
 
 def _fold(text: str) -> str:
@@ -372,12 +274,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Async fetch list of "folk" libraries
         try:
-            libraries, excLibraries = await self.hass.async_add_executor_job(
-                refreshLibraries
-            )
+            libraries = await self.hass.async_add_executor_job(refreshLibraries)
         except CannotConnect:
             errors["base"] = "cannot_connect"
-            libraries, excLibraries = {}, {}
+            libraries = {}
 
         municipality = ""
         try:
@@ -386,10 +286,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.hass.config.longitude,
                 self.hass.config.latitude,
             )
-            if municipality in excLibraries.keys():
-                raise gatewayf
-        except gatewayf:
-            errors["base"] = "gatewayf"
+        except Exception:
+            _LOGGER.exception("Unexpected exception looking up the municipality")
 
         # The dropdown is keyed by agency name, so preselect the resolved key
         # rather than the raw municipality (which would be an invalid default
@@ -475,10 +373,6 @@ class OptionsFlow(config_entries.OptionsFlow):
                 options_schema, self.config_entry.options
             ),
         )
-
-
-class gatewayf(HomeAssistantError):
-    """Error to indicate municipality is using gatewayf."""
 
 
 class UserExist(HomeAssistantError):

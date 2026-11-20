@@ -20,7 +20,7 @@ uv sync --group dev          # from the repo root, creates .venv
 ## async_test_module.py
 
 ```bash
-# list every usable library (and the ones excluded for using gatewayf)
+# list every supported library
 uv run python scripts/async_test_module.py --municipalities
 
 # log in and print the status

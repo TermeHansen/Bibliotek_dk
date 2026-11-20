@@ -48,7 +48,10 @@ except ModuleNotFoundError:
 
 from requests.exceptions import RequestException  # noqa: E402
 
-from custom_components.bibliotek_dk.config_flow import refreshLibraries  # noqa: E402
+from custom_components.bibliotek_dk.config_flow import (  # noqa: E402
+    CannotConnect,
+    refreshLibraries,
+)
 from custom_components.bibliotek_dk.const import (  # noqa: E402
     CONF_AGENCY,
     CONF_HOST,
@@ -505,16 +508,15 @@ def print_status(data: dict, label: str = "") -> None:
 
 async def run(args: argparse.Namespace) -> int:
     """Do the work; return the process exit code."""
-    libraries, excluded = await asyncio.to_thread(refreshLibraries)
-    if not libraries:
+    try:
+        libraries = await asyncio.to_thread(refreshLibraries)
+    except CannotConnect:
         print("Could not fetch the library list (see the log above).", file=sys.stderr)
         return 2
 
     if args.municipalities:
         for name in sorted(libraries):
             print(name)
-        if excluded:
-            print(f"\nNot usable (gatewayf): {', '.join(sorted(excluded))}")
         return 0
 
     name = match_municipality(args.municipality, libraries)

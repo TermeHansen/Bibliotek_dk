@@ -8,10 +8,14 @@
 
 * The library list now comes from the Biblo app's JSON agency list instead of
   scraping the login page's `var libraries` script, so it no longer breaks when
-  that page is redesigned. The scraped page is kept as a fallback.
+  that page is redesigned. The scrape is gone entirely; the API is the only
+  source, and a failed lookup reports `cannot_connect` instead of an empty
+  dropdown.
 * The five libraries the login page flagged as gatewayf (Assens, Langeland,
-  Nordfyns, Odense, Svendborg) stay hidden, now by an explicit agency-id set
-  rather than by inspecting their registration URL.
+  Nordfyns, Odense, Svendborg) are now selectable like every other library. They
+  serve the same login form, so the exclusion is dropped rather than carried
+  over to the API list. Users in those municipalities are asked to test before
+  the release.
 * The Faroese (`Býarbókasavnið`) and Greenlandic (`Kalaallit Nunaat`) libraries
   are absent from the API's list, so they are added explicitly rather than lost.
 * The municipality picker now resolves a municipality to its library by name
@@ -20,7 +24,9 @@
   municipality ("København"), so the preselected default could not match for 13
   of the 98 Danish municipalities. `Thisted` is the one case with no name
   overlap at all and is handled by an explicit alias.
-* No change to which libraries are usable: still 95, with the same 5 hidden.
+* The `gatewayf` config-flow error is removed from `strings.json` and both
+  translations, since no code path can raise it any more.
+* 100 libraries can now be configured (98 from the API plus the two extras).
 
 ## Version 0.9.2
 

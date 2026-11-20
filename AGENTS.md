@@ -180,17 +180,17 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   A 200 carrying `{"data": null}` is a **failed lookup, not a hit**: it must
   return `{}` and stay out of `_details`, or the caller gets `None` and every
   later lookup for that id returns it too.
-- **The library list comes from the API, and the municipality is resolved by
-  name** (0.9.3). `refreshLibraries()` tries `_librariesFromDdf()`
-  (`GET /v1/agencies`) first and only falls back to `_librariesFromPage()` (the
-  login page's `var libraries` script), raising `CannotConnect` when both fail.
-  The API list carries **no gatewayf flag**, so the five hidden libraries are
-  named by agency id in `GATEWAYF_AGENCIES`; `_excludedLibraries()` re-fetches
-  the list to give them names for the "not supported" message (best effort — a
-  failure there must not break the flow). The API also **omits the Faroese and
-  Greenlandic agencies**, which work, so `EXTRA_LIBRARIES` adds them back; do
-  not replace that with a plain API pass-through. The dropdown is keyed by
-  agency name ("Københavns Biblioteker") while `municipalityFromCoor` returns
+- **The library list comes from the API alone, and the municipality is resolved
+  by name** (0.9.3). `refreshLibraries()` calls `_librariesFromDdf()`
+  (`GET /v1/agencies`) and raises `CannotConnect` when it yields nothing; the
+  old login-page scrape (`var libraries`) is deleted, because it depended on the
+  page's HTML shape and was the coupling this endpoint removes. The API also
+  **omits the Faroese and Greenlandic agencies**, which work, so
+  `EXTRA_LIBRARIES` adds them back; do not replace that with a plain API
+  pass-through. The API carries **no gatewayf flag**, so the five libraries the
+  scrape used to hide (Assens, Langeland, Nordfyns, Odense, Svendborg) are now
+  listed like any other — they serve the same borchk form. The dropdown is keyed
+  by agency name ("Københavns Biblioteker") while `municipalityFromCoor` returns
   the municipality ("København"), so `resolveMunicipality()` does exact → alias
   → folded-unique-substring and returns `None` rather than guessing on an
   ambiguous match. `MUNICIPALITY_ALIASES` holds the only municipality with no

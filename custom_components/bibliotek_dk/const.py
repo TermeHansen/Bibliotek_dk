@@ -38,7 +38,6 @@ JSON_HEADERS = {
 MUNICIPALITY_LOOKUP_URL = "https://dawa.companydata.dk/kommuner/reverse?x=LON&y=LAT"
 
 UPDATE_INTERVAL = 60
-URL_FALLBACK = "https://bibliotek.kk.dk"
 URL_LOGIN = "/login"
 URL_LOGIN_PAGE = "/login?current-path=/user/me/dashboard"
 
@@ -67,19 +66,6 @@ DDF_API_KEY = "wnFOwN6DkmQazm_jiahemlIVgWuQ-fgtNSfBRNdun6w"
 # A stable, non-identifying installation id: the gateway only requires >= 10
 # characters, and the record endpoint does not tie anything to a device.
 DDF_INSTALLATION_ID = "bibliotek-dk-homeassistant"
-
-# Agencies the login page advertises as gatewayf (WAYF) registrations, so they
-# are hidden from the config flow. The agency list from the API has no such
-# flag, so this is the explicit replacement for the old
-# `"gatewayf" not in registrationUrl` test.
-#
-# Re-check before removing one: `registrationUrl` is the *account-creation*
-# page, and the login form these hosts serve is byte-identical to the one for
-# the supported libraries (borchk card + pincode). All five may be usable; that
-# has not been tested with a real account, so they stay hidden (plan 8.5).
-GATEWAYF_AGENCIES = frozenset(
-    {"742000", "746100", "747900", "748000", "748200"}  # Assens, Odense, ...
-)
 
 # Agencies that are usable but absent from the API's agency list, so the switch
 # would otherwise drop them. Both serve the same borchk login form.
