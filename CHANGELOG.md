@@ -1,5 +1,29 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.9.0
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Normalize Biblo timestamps to local time so remaining loan days are correct
+  around midnight and daylight-saving changes.
+* Preserve optional Biblo reservation queue positions as `queue_number`.
+* Expose `other_digital_loans` for types outside e-books/audiobooks, preserving
+  the original material type and reconciling the digital format counts.
+* Support Biblo through DBC's Biblio LMS adapter, selected automatically when
+  the library website enables it. The existing digital-loans option and
+  bibliotekslogin continue to apply; libraries that have not switched retain
+  the Pubhub connection.
+* Fetch all pages of digital loans and reservations, including available
+  reservation offers. Failed requests keep the last successful results.
+* Dashboard compatibility: Biblio exposes `audiobook` and `podcast` material
+  types. Existing icon maps must support them or use a fallback lookup;
+  see the reusable template in `BIBLO.md`.
+* Expose Biblio quotas as `digital_loans_quota` on the general sensor. Shared
+  allowances are not presented as independent e-book and audiobook quotas.
+* See `BIBLO.md` for contract sources, limitations and manual verification.
+
 ## Version 0.8.2
 
 **Date**: `2026-11-19`
@@ -11,6 +35,7 @@
 * Correct the internal `get_debts` flag spelling and replace a misleading
   loan-date comment (IMPROVEMENT_PLAN.md section 7.8). Sensor IDs, attributes
   and configuration keys are unchanged.
+
 
 ## Version 0.8.1
 
