@@ -1,5 +1,28 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.10.0
+
+**Date**: `2026-11-20`
+
+### Changes
+
+* Encrypt stored credentials (`user_id` and `pincode`) at rest with AES-256-GCM
+  (AAD-bound to field and agency). Supports both unattended keyfile/external-key
+  mode (`BIBLIOTEK_DK_ENCRYPTION_KEY`, `configuration.yaml` `encryption_key` /
+  `key_file`, or auto-generated `0600` `.storage/bibliotek_dk.key`) and
+  passphrase mode (Scrypt + AES-256-GCM with zero key material on disk,
+  unlocked in memory via Home Assistant's Reauth flow after restarts).
+* Replace raw CPR `ConfigEntry.unique_id` values with keyed HMAC-SHA256 digests
+  and migrate sensor `unique_id`s away from unsalted MD5 of CPR to opaque
+  `config_entry.entry_id`-scoped identifiers (`v1` -> `v2` migration).
+* Remove the CPR birthdate prefix (`userId[:-4]`) from all log lines and
+  exceptions, mask credential/passphrase fields in the UI (`TextSelectorType.PASSWORD`),
+  stop `OptionsFlow` from copying credentials into `entry.options`, close the
+  temporary validation HTTP session, and add a `reconfigure` flow.
+* Gate `address`, `phone`, and `mail` on the general library sensor behind an
+  opt-in `expose_personal_info` setting (default `false`), and expand
+  diagnostics redaction to cover contact PII and `unique_id`.
+
 ## Version 0.9.0
 
 **Date**: `2026-11-19`

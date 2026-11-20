@@ -7,11 +7,36 @@
           "municipality": "[%key:common::config_flow::data::municipality%]",
           "user_id": "[%key:common::config_flow::data::user_id%]",
           "pincode": "[%key:common::config_flow::data::pincode%]",
+          "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)",
           "show_debts": "[%key:common::config_flow::data::show_debts%]",
           "show_loans": "[%key:common::config_flow::data::show_loans%]",
           "show_eloans": "[%key:common::config_flow::data::show_eloans%]",
           "show_reservations": "[%key:common::config_flow::data::show_reservations%]",
+          "expose_personal_info": "Expose address, phone, and email on sensor attributes",
           "update_interval": "[%key:common::config_flow::data::update_interval%]"
+        },
+        "data_description": {
+          "encryption_passphrase": "If set, credentials are encrypted with Scrypt + AES-256-GCM and nothing is written to disk. You will be prompted to unlock after every Home Assistant restart.",
+          "expose_personal_info": "Off by default to keep home address, phone number, and email out of the Home Assistant recorder."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Unlock or re-authenticate Bibliotek",
+        "description": "Enter your encryption passphrase to unlock credentials in memory, or re-enter your library credentials.",
+        "data": {
+          "encryption_passphrase": "Encryption passphrase",
+          "user_id": "CPR or library number",
+          "pincode": "PIN code"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Bibliotek",
+        "description": "Update your library credentials or switch between automatic keyfile and passphrase encryption.",
+        "data": {
+          "municipality": "Municipality",
+          "user_id": "CPR or library number",
+          "pincode": "PIN code",
+          "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)"
         }
       }
     },
@@ -20,10 +45,28 @@
       "user_exist": "[%key:common::config_flow::error::user_exist%]",
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "invalid_passphrase": "Invalid encryption passphrase",
+      "decryption_failed": "Failed to decrypt stored credentials",
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "update_interval": "Update interval in minutes",
+          "show_loans": "Show loans",
+          "show_eloans": "Show loans from Biblo / eReolen",
+          "show_debts": "Show debts",
+          "show_reservations": "Show reservations",
+          "expose_personal_info": "Expose address, phone, and email on sensor attributes"
+        }
+      }
     }
   },
   "services": {

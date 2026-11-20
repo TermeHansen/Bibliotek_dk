@@ -73,13 +73,14 @@ class Library:
         agency: str,
         libraryName=None,
         use_eReolen: bool = True,
+        account_label: str | None = None,
     ) -> None:
 
         self.agency = agency
         self.libraryName = None
         self.icon = None
         self.user = libraryUser(userId=userId, pincode=pincode)
-        self.user.date = self.user.userId[:-4]
+        self.user.log_label = account_label or libraryName or agency or "account"
         self.municipality = libraryName
         self.use_eReolen = use_eReolen
         self.get_loans = True
@@ -115,7 +116,7 @@ class Library:
         # user_token property performs the login/refresh itself when needed.
         if not self._transport.user_token:
             raise LibraryAuthError(
-                f"Login failed for {self.user.date} (check user id and pincode)"
+                f"Login failed for {self.user.log_label} (check user id and pincode)"
             )
 
         if self.use_eReolen:
@@ -246,7 +247,7 @@ class Library:
                 self.branches[branch["branchId"]] = branch["name"]
         else:
             _LOGGER.warning(
-                f"({self.user.date}) Error looking up branch '{id}' ({res.status_code})"
+                f"({self.user.log_label}) Error looking up branch '{id}' ({res.status_code})"
             )
         return self.branches.get(id, id)
 
@@ -268,7 +269,7 @@ class Library:
             self._details[faust] = data
         else:
             _LOGGER.warning(
-                f"({self.user.date}) Error getting details for material: '{faust}' ({res.status_code})"
+                f"({self.user.log_label}) Error getting details for material: '{faust}' ({res.status_code})"
             )
         return data
 
@@ -286,7 +287,7 @@ class Library:
                 }
             else:
                 _LOGGER.warning(
-                    f"({self.user.date}) Error fetching API urls ({res.status_code})"
+                    f"({self.user.log_label}) Error fetching API urls ({res.status_code})"
                 )
         return self._urls
 
@@ -312,10 +313,12 @@ class Library:
                 self.libraryName = self._branchName(data["preferredPickupBranch"])
                 return True
             except (AttributeError, KeyError, TypeError, ValueError) as err:
-                _LOGGER.error(f"Error getting user info {self.user.date}. Error: {err}")
+                _LOGGER.error(
+                    f"Error getting user info {self.user.log_label}. Error: {err}"
+                )
         else:
             _LOGGER.warning(
-                f"({self.user.date}) Error fetching user info ({res.status_code})"
+                f"({self.user.log_label}) Error fetching user info ({res.status_code})"
             )
         return False
 
@@ -347,7 +350,7 @@ class Library:
                 except Exception as err:
                     # One malformed entry must not abort the whole refresh.
                     _LOGGER.warning(
-                        f"({self.user.date}) Skipping malformed loan entry: {err}"
+                        f"({self.user.log_label}) Skipping malformed loan entry: {err}"
                     )
                     continue
                 if obj.expireDate < datetime.now():
@@ -358,7 +361,7 @@ class Library:
             self._loans_overdue["physical"] = physical_overdue
         else:
             _LOGGER.warning(
-                f"({self.user.date}) Error fetching loans ({res.status_code})"
+                f"({self.user.log_label}) Error fetching loans ({res.status_code})"
             )
         # Ebooks
         if self.use_eReolen and self._biblio is not None:
@@ -380,7 +383,7 @@ class Library:
                     ]
                 except (KeyError, TypeError) as err:
                     _LOGGER.warning(
-                        f"({self.user.date}) Unexpected eReolen loans payload: {err}"
+                        f"({self.user.log_label}) Unexpected eReolen loans payload: {err}"
                     )
 
                 ereloans = []
@@ -389,7 +392,7 @@ class Library:
                         id = material["libraryBook"]["identifier"]
                     except (KeyError, TypeError) as err:
                         _LOGGER.warning(
-                            f"({self.user.date}) Skipping malformed eReolen loan entry: {err}"
+                            f"({self.user.log_label}) Skipping malformed eReolen loan entry: {err}"
                         )
                         continue
                     res2 = self._get(
@@ -397,7 +400,7 @@ class Library:
                     )
                     if res2.status_code != 200:
                         _LOGGER.warning(
-                            f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
+                            f"({self.user.log_label}) Error fetching eReolen product '{id}' ({res2.status_code})"
                         )
                         continue
                     try:
@@ -411,14 +414,14 @@ class Library:
                         )
                     except Exception as err:
                         _LOGGER.warning(
-                            f"({self.user.date}) Skipping malformed eReolen product '{id}': {err}"
+                            f"({self.user.log_label}) Skipping malformed eReolen product '{id}': {err}"
                         )
                         continue
                     ereloans.append(obj)
                 self._loans["ereolen"] = ereloans
             else:
                 _LOGGER.warning(
-                    f"({self.user.date}) Error fetching eReolen loans ({res.status_code})"
+                    f"({self.user.log_label}) Error fetching eReolen loans ({res.status_code})"
                 )
         else:
             self.user.eBooks = 0
@@ -504,7 +507,7 @@ class Library:
                 body = None
             detail = body.get("errorCode") if isinstance(body, dict) else None
             _LOGGER.warning(
-                f"({self.user.date}) Error renewing loans ({res.status_code}"
+                f"({self.user.log_label}) Error renewing loans ({res.status_code}"
                 f"{f', {detail}' if detail else ''})"
             )
             return {}
@@ -548,7 +551,7 @@ class Library:
                 except Exception as err:
                     # One malformed entry must not abort the whole refresh.
                     _LOGGER.warning(
-                        f"({self.user.date}) Skipping malformed reservation entry: {err}"
+                        f"({self.user.log_label}) Skipping malformed reservation entry: {err}"
                     )
                     continue
                 if material["state"] == "readyForPickup":
@@ -565,7 +568,7 @@ class Library:
             self._reservations_ready["physical"] = physical_ready
         else:
             _LOGGER.warning(
-                f"({self.user.date}) Error fetching reservations ({res.status_code})"
+                f"({self.user.log_label}) Error fetching reservations ({res.status_code})"
             )
 
         # eReolen
@@ -583,7 +586,7 @@ class Library:
                         id = material["identifier"]
                     except (KeyError, TypeError) as err:
                         _LOGGER.warning(
-                            f"({self.user.date}) Skipping malformed eReolen reservation entry: {err}"
+                            f"({self.user.log_label}) Skipping malformed eReolen reservation entry: {err}"
                         )
                         continue
                     res2 = self._get(
@@ -591,7 +594,7 @@ class Library:
                     )
                     if res2.status_code != 200:
                         _LOGGER.warning(
-                            f"({self.user.date}) Error fetching eReolen product '{id}' ({res2.status_code})"
+                            f"({self.user.log_label}) Error fetching eReolen product '{id}' ({res2.status_code})"
                         )
                         continue
                     try:
@@ -611,14 +614,14 @@ class Library:
                         obj.pickupLibrary = "ereolen.dk"
                     except Exception as err:
                         _LOGGER.warning(
-                            f"({self.user.date}) Skipping malformed eReolen reservation '{id}': {err}"
+                            f"({self.user.log_label}) Skipping malformed eReolen reservation '{id}': {err}"
                         )
                         continue
                     erereservations.append(obj)
                 self._reservations["ereolen"] = erereservations
             else:
                 _LOGGER.warning(
-                    f"({self.user.date}) Error fetching eReolen reservations ({res.status_code})"
+                    f"({self.user.log_label}) Error fetching eReolen reservations ({res.status_code})"
                 )
         else:
             self._reservations["ereolen"] = []
@@ -657,13 +660,13 @@ class Library:
                 except Exception as err:
                     # One malformed fee must not abort the whole refresh.
                     _LOGGER.warning(
-                        f"({self.user.date}) Skipping malformed fee entry: {err}"
+                        f"({self.user.log_label}) Skipping malformed fee entry: {err}"
                     )
                     continue
                 debts.append(obj)
         else:
             _LOGGER.warning(
-                f"({self.user.date}) Error fetching debts ({res.status_code})"
+                f"({self.user.log_label}) Error fetching debts ({res.status_code})"
             )
             # Keep the previous debts so an outage does not show zero fees.
             return

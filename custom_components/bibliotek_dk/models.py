@@ -16,7 +16,7 @@ class libraryUser:
     def __init__(self, userId: str, pincode: str) -> None:
         self.userInfo = {"loginBibDkUserId": userId, "pincode": pincode}
         self.userId = userId
-        self.date = None
+        self.log_label: str = "account"
         self.name = None
         self.address = None
         self.phone = None
@@ -38,6 +38,10 @@ class libraryUser:
         self.otherDigitalLoans = 0
         self.digitalLoansQuota = None
         self.pickupLibrary = None
+
+    def __repr__(self) -> str:
+        """Return a safe representation without exposing credentials."""
+        return f"libraryUser(label={self.log_label!r})"
 
 
 class libraryMaterial:

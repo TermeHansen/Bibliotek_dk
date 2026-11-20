@@ -32,7 +32,6 @@ from custom_components.bibliotek_dk.sensor import (
     LoanSensor,
     ReservationReadySensor,
     ReservationSensor,
-    md5_unique_id,
 )
 
 
@@ -102,12 +101,11 @@ def _loan(title, expire):
     return loan
 
 
-def test_md5_unique_id_is_stable_and_hex():
-    a = md5_unique_id("Loans_1234")
-    b = md5_unique_id("Loans_1234")
-    assert a == b
-    assert len(a) == 32
-    assert a != md5_unique_id("Loans_5678")
+def test_sensors_use_opaque_entry_scoped_unique_id():
+    lib = _library()
+    sensor = LoanSensor(lib.user, FakeCoordinator(), entry_id="entry-xyz")
+    assert sensor.unique_id == "entry-xyz_loans"
+    assert lib.user.userId not in sensor.unique_id
 
 
 def test_library_sensor_state_days_to_return():

@@ -1,7 +1,12 @@
 CONF_AGENCY = "agency"
 CONF_BRANCH_ID = "branchId"
 CONF_CONFIG_ENTRY_ID = "config_entry_id"
+CONF_ENCRYPTION_KEY = "encryption_key"
+CONF_ENCRYPTION_MODE = "encryption_mode"
+CONF_ENCRYPTION_PASSPHRASE = "encryption_passphrase"  # noqa: S105
+CONF_EXPOSE_PERSONAL_INFO = "expose_personal_info"
 CONF_HOST = "host"
+CONF_KEY_FILE = "key_file"
 CONF_MUNICIPALITY = "municipality"
 CONF_NAME = "name"
 CONF_PINCODE = "pincode"
@@ -14,6 +19,23 @@ CONF_USER_ID = "user_id"
 CREDITS = "J-Lindvig & TermeHansen (https://github.com/TermeHansen/Bibliotek_dk)"
 
 DOMAIN = "bibliotek_dk"
+
+ENCRYPTION_MODE_KEYFILE = "keyfile"
+ENCRYPTION_MODE_PASSPHRASE = "passphrase"  # noqa: S105
+ENV_ENCRYPTION_KEY = "BIBLIOTEK_DK_ENCRYPTION_KEY"
+DATA_CONFIG = f"{DOMAIN}_config"
+DATA_PASSPHRASES = f"{DOMAIN}_passphrases"
+DATA_MASTER_KEY = f"{DOMAIN}_master_key"
+KEY_FILE_NAME = "bibliotek_dk.key"
+
+OPTION_KEYS = (
+    CONF_SHOW_LOANS,
+    CONF_SHOW_ELOANS,
+    CONF_SHOW_DEBTS,
+    CONF_SHOW_RESERVATIONS,
+    CONF_EXPOSE_PERSONAL_INFO,
+    CONF_UPDATE_INTERVAL,
+)
 
 HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",

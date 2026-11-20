@@ -21,6 +21,7 @@ from decimal import Decimal
 import hashlib
 
 from .const import (
+    CONF_EXPOSE_PERSONAL_INFO,
     CONF_UPDATE_INTERVAL,
     CREDITS,
     DOMAIN,
@@ -67,9 +68,10 @@ async def async_setup_entry(
         update_interval=timedelta(minutes=int(new_data[CONF_UPDATE_INTERVAL])),
     )
     myLibrary = hass.data[DOMAIN][entry.entry_id]
-    myLibrary.get_loans = new_data[CONF_SHOW_LOANS]
-    myLibrary.get_debts = new_data[CONF_SHOW_DEBTS]
-    myLibrary.get_reservations = new_data[CONF_SHOW_RESERVATIONS]
+    myLibrary.get_loans = new_data.get(CONF_SHOW_LOANS, True)
+    myLibrary.get_debts = new_data.get(CONF_SHOW_DEBTS, True)
+    myLibrary.get_reservations = new_data.get(CONF_SHOW_RESERVATIONS, True)
+    expose_personal_info = bool(new_data.get(CONF_EXPOSE_PERSONAL_INFO, False))
     # Expose the coordinator so services (renew_loans) can request a refresh
     # without reloading the whole config entry.
     myLibrary.coordinator = coordinator
@@ -80,21 +82,34 @@ async def async_setup_entry(
     sensors = []
 
     # Library
-    sensors.append(LibrarySensor(myLibrary, coordinator))
+    sensors.append(
+        LibrarySensor(
+            myLibrary,
+            coordinator,
+            entry_id=entry.entry_id,
+            expose_personal_info=expose_personal_info,
+        )
+    )
 
     # Loans
-    if new_data[CONF_SHOW_LOANS]:
-        sensors.append(LoanSensor(myLibrary.user, coordinator))
-        sensors.append(LoanOverdueSensor(myLibrary.user, coordinator))
+    if new_data.get(CONF_SHOW_LOANS, True):
+        sensors.append(LoanSensor(myLibrary.user, coordinator, entry_id=entry.entry_id))
+        sensors.append(
+            LoanOverdueSensor(myLibrary.user, coordinator, entry_id=entry.entry_id)
+        )
 
     # Debts
-    if new_data[CONF_SHOW_DEBTS]:
-        sensors.append(DebtSensor(myLibrary.user, coordinator))
+    if new_data.get(CONF_SHOW_DEBTS, True):
+        sensors.append(DebtSensor(myLibrary.user, coordinator, entry_id=entry.entry_id))
 
     # Reservations
-    if new_data[CONF_SHOW_RESERVATIONS]:
-        sensors.append(ReservationSensor(myLibrary.user, coordinator))
-        sensors.append(ReservationReadySensor(myLibrary.user, coordinator))
+    if new_data.get(CONF_SHOW_RESERVATIONS, True):
+        sensors.append(
+            ReservationSensor(myLibrary.user, coordinator, entry_id=entry.entry_id)
+        )
+        sensors.append(
+            ReservationReadySensor(myLibrary.user, coordinator, entry_id=entry.entry_id)
+        )
 
     # Group every sensor under a single device per config entry.
     device_info = DeviceInfo(
@@ -110,7 +125,8 @@ async def async_setup_entry(
     async_add_entities(sensors)
 
 
-def md5_unique_id(string):
+def _legacy_md5_unique_id(string: str) -> str:
+    """Compute historical unsalted MD5 sensor unique IDs solely for v1->v2 migration."""
     return hashlib.md5(string.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
@@ -169,13 +185,15 @@ class BibliotekCountSensor(BibliotekBaseSensor):
         library_user: libraryUser,
         coordinator: DataUpdateCoordinator,
         name: str,
-        unique_prefix: str,
+        unique_suffix: str,
         attr_key: str,
+        entry_id: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self.libraryUser = library_user
         self._name = name
-        self._unique_id = md5_unique_id(unique_prefix + library_user.userId)
+        scope = entry_id or library_user.log_label
+        self._unique_id = f"{scope}_{unique_suffix}"
         self._attr_key = attr_key
 
     @property
@@ -211,13 +229,15 @@ class LibrarySensor(BibliotekBaseSensor):
         self,
         myLibrary: Library,
         coordinator: DataUpdateCoordinator,
+        entry_id: str | None = None,
+        expose_personal_info: bool = False,
     ) -> None:
         super().__init__(coordinator)
         self.myLibrary = myLibrary
+        self._expose_personal_info = expose_personal_info
         self._name = f"{self.myLibrary.libraryName} ({self.myLibrary.user.name})"
-        self._unique_id = md5_unique_id(
-            self.myLibrary.libraryName + self.myLibrary.user.userId
-        )
+        scope = entry_id or self.myLibrary.user.log_label
+        self._unique_id = f"{scope}_main"
 
     @property
     def icon(self):
@@ -243,10 +263,7 @@ class LibrarySensor(BibliotekBaseSensor):
             "reservations_ready": len(self.myLibrary.user.reservationsReady),
             "debts": len(self.myLibrary.user.debts),
             "user": self.myLibrary.user.name,
-            "address": self.myLibrary.user.address,
-            "phone": self.myLibrary.user.phone,
             "phone_notifications": self.myLibrary.user.phoneNotify,
-            "mail": self.myLibrary.user.mail,
             "mail_notifications": self.myLibrary.user.mailNotify,
             "pickup_library": self.myLibrary.user.pickupLibrary,
             "ebooks": self.myLibrary.user.eBooks,
@@ -259,6 +276,10 @@ class LibrarySensor(BibliotekBaseSensor):
             ATTR_UNIT_OF_MEASUREMENT: "days",
             ATTR_ATTRIBUTION: CREDITS,
         }
+        if self._expose_personal_info:
+            attr["address"] = self.myLibrary.user.address
+            attr["phone"] = self.myLibrary.user.phone
+            attr["mail"] = self.myLibrary.user.mail
 
         # PNG as icon/entity-picture
         if self.myLibrary.icon:
@@ -273,14 +294,18 @@ class LoanSensor(BibliotekCountSensor):
     _icon_many = "mdi:book-multiple"
 
     def __init__(
-        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
+        self,
+        library_user: libraryUser,
+        coordinator: DataUpdateCoordinator,
+        entry_id: str | None = None,
     ) -> None:
         super().__init__(
             library_user,
             coordinator,
             name=f"Bibliotekslån ({library_user.name})",
-            unique_prefix="Loans_",
+            unique_suffix="loans",
             attr_key="loans",
+            entry_id=entry_id,
         )
 
     @property
@@ -308,14 +333,18 @@ class LoanOverdueSensor(BibliotekCountSensor):
     _icon_many = "mdi:alarm-multiple"
 
     def __init__(
-        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
+        self,
+        library_user: libraryUser,
+        coordinator: DataUpdateCoordinator,
+        entry_id: str | None = None,
     ) -> None:
         super().__init__(
             library_user,
             coordinator,
             name=f"Bibliotekslån overskredet ({library_user.name})",
-            unique_prefix="LoansOverdue_",
+            unique_suffix="loans_overdue",
             attr_key="loans_overdue",
+            entry_id=entry_id,
         )
 
     @property
@@ -340,14 +369,18 @@ class ReservationSensor(BibliotekCountSensor):
     _icon_many = "mdi:book-plus-multiple"
 
     def __init__(
-        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
+        self,
+        library_user: libraryUser,
+        coordinator: DataUpdateCoordinator,
+        entry_id: str | None = None,
     ) -> None:
         super().__init__(
             library_user,
             coordinator,
             name=f"Reservationer ({library_user.name})",
-            unique_prefix="Reservations_",
+            unique_suffix="reservations",
             attr_key="reservations",
+            entry_id=entry_id,
         )
 
     @property
@@ -374,14 +407,18 @@ class ReservationReadySensor(BibliotekCountSensor):
     _icon_many = "mdi:book-plus-multiple"
 
     def __init__(
-        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
+        self,
+        library_user: libraryUser,
+        coordinator: DataUpdateCoordinator,
+        entry_id: str | None = None,
     ) -> None:
         super().__init__(
             library_user,
             coordinator,
             name=f"Reservationer klar ({library_user.name})",
-            unique_prefix="ReservationsReady_",
+            unique_suffix="reservations_ready",
             attr_key="reservations_ready",
+            entry_id=entry_id,
         )
 
     @property
@@ -413,14 +450,18 @@ class DebtSensor(BibliotekCountSensor):
     _attr_state_class = SensorStateClass.TOTAL
 
     def __init__(
-        self, library_user: libraryUser, coordinator: DataUpdateCoordinator
+        self,
+        library_user: libraryUser,
+        coordinator: DataUpdateCoordinator,
+        entry_id: str | None = None,
     ) -> None:
         super().__init__(
             library_user,
             coordinator,
             name=f"Gebyrer ({library_user.name})",
-            unique_prefix="Debts_",
+            unique_suffix="debts",
             attr_key="debts",
+            entry_id=entry_id,
         )
 
     @property

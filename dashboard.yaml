@@ -10,7 +10,7 @@ views:
               {# CHANGE BELOW #}
               {% set libraryUsers = states.sensor 
                 | selectattr('attributes.loans_overdue', 'defined') 
-                | rejectattr('attributes.address', 'defined')
+                | rejectattr('attributes.sensor_type', 'defined')
                 | rejectattr('state', 'eq', '0')
                 | map(attribute='entity_id')
                 | list %}
@@ -43,7 +43,7 @@ views:
               {# CHANGE BELOW #}
               {% set libraryUsers = states.sensor 
                 | selectattr('attributes.debts', 'defined') 
-                | rejectattr('attributes.address', 'defined')
+                | rejectattr('attributes.sensor_type', 'defined')
                 | rejectattr('state', 'eq', '0.0')
                 | map(attribute='entity_id')
                 | list %}
@@ -75,7 +75,7 @@ views:
           {# CHANGE BELOW #}
           {% set libraryUsers = states.sensor 
             | selectattr('attributes.loans', 'defined') 
-            | rejectattr('attributes.address', 'defined')
+            | rejectattr('attributes.sensor_type', 'defined')
             | rejectattr('state', 'eq', '0')
             | map(attribute='entity_id')
             | list %}
@@ -109,7 +109,7 @@ views:
               {# CHANGE BELOW #}
               {% set libraryUsers = states.sensor 
                 | selectattr('attributes.reservations', 'defined') 
-                | rejectattr('attributes.address', 'defined')
+                | rejectattr('attributes.sensor_type', 'defined')
                 | rejectattr('state', 'eq', '0')
                 | map(attribute='entity_id')
                 | list %}
@@ -144,7 +144,7 @@ views:
               {# CHANGE BELOW #}
               {% set libraryUsers = states.sensor 
                 | selectattr('attributes.reservations_ready', 'defined')
-                | rejectattr('attributes.address', 'defined')
+                | rejectattr('attributes.sensor_type', 'defined')
                 | rejectattr('state','eq', '0')
                 | map(attribute='entity_id')
                 | list %}
@@ -177,7 +177,7 @@ views:
               {# CHANGE BELOW #}
               {% set libraryUsers = states.sensor 
                 | selectattr('attributes.reservations', 'defined') 
-                | selectattr('attributes.address', 'defined')
+                | selectattr('attributes.sensor_type', 'defined')
                 | rejectattr('state', 'eq', '0')
                 | map(attribute='entity_id')
                 | list %}

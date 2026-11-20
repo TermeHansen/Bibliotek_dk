@@ -27,6 +27,38 @@ All the configuration is done in GUI.
 The show/hide toggles can be changed later from the integration's **Configure**
 (options) dialog. Unticking one stops those sensors from being created.
 
+### Security & Privacy
+
+> [!TIP]
+> If your library issues a separate library card number (*lånernummer*), prefer
+> entering that instead of your CPR number so your CPR never enters Home
+> Assistant.
+
+- **Authenticated Encryption at Rest:** `user_id` and `pincode` are encrypted
+  with AES-256-GCM before being saved in Home Assistant's config entry storage.
+  - **Automatic keyfile / external key (default):** Leave the optional
+    encryption passphrase blank for unattended restarts. A 256-bit key is
+    stored with `0600` permissions in `/config/.storage/bibliotek_dk.key`, or
+    you can supply your own key via the `BIBLIOTEK_DK_ENCRYPTION_KEY`
+    environment variable or `configuration.yaml`:
+    ```yaml
+    bibliotek_dk:
+      encryption_key: !secret bibliotek_dk_key
+      # or key_file: /run/secrets/bibliotek_dk.key
+    ```
+  - **Passphrase mode (zero key on disk):** Supply an optional encryption
+    passphrase during setup or **Reconfigure** to encrypt credentials with
+    Scrypt (`n=2^16`) + AES-256-GCM without storing any key on disk. After each
+    Home Assistant restart, the integration prompts once via the built-in
+    **Reauth** flow to unlock credentials in RAM.
+- **No CPR or Birthdate Leakage:** `ConfigEntry.unique_id` uses a keyed
+  HMAC-SHA256 digest, sensor `unique_id`s use opaque `entry_id` prefixes (no
+  unsalted MD5 of CPR), and logs/exceptions never include the CPR birthdate
+  prefix.
+- **Minimal Recorder PII:** Home `address`, `phone`, and `mail` attributes on
+  the general library sensor are disabled by default (`expose_personal_info:
+  false`) and can be opted into from setup or **Configure**.
+
 ## Usage
 With this custom integration for [Home Assistant](https://www.home-assistant.io/) you will probably never be late again on your returns.
 The integration creates these sensors:

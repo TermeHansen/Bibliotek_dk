@@ -1,13 +1,17 @@
 {
   "config": {
     "abort": {
-      "already_configured": "Du har allerede konfigureret"
+      "already_configured": "Du har allerede konfigureret",
+      "reauth_successful": "Genautorisation gennemført",
+      "reconfigure_successful": "Genkonfiguration gennemført"
     },
     "error": {
       "gatewayf": "Din kommune bruger WAYF som login og understøttes ikke af integrationen",
       "user_exist": "Brugeren er allerede oprettet",
       "cannot_connect": "Problem med forbindelsen",
-      "invalid_auth": "forkert id eller pin kode",
+      "invalid_auth": "Forkert id eller pin kode",
+      "invalid_passphrase": "Ugyldig krypteringsadgangskode",
+      "decryption_failed": "Kunne ikke dekryptere gemte legitimationsoplysninger",
       "unknown": "Ukendt fejl"
     },
     "step": {
@@ -17,24 +21,50 @@
           "municipality": "Kommune",
           "user_id": "CPR eller lånernummer",
           "pincode": "PIN kode",
+          "encryption_passphrase": "Valgfri krypteringsadgangskode (lad stå tom for automatisk nøglefil)",
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
           "show_eloans": "Vis lån fra Biblo / eReolen",
           "show_debts": "Vis gebyrer",
-          "show_reservations": "Vis reservationer"
+          "show_reservations": "Vis reservationer",
+          "expose_personal_info": "Vis adresse, telefon og e-mail på sensorattributter"
+        },
+        "data_description": {
+          "encryption_passphrase": "Hvis angivet, krypteres legitimationsoplysninger med Scrypt + AES-256-GCM uden nøgle på disk. Du bliver bedt om at låse op efter hver genstart af Home Assistant.",
+          "expose_personal_info": "Slået fra som standard for at holde adresse, telefonnummer og e-mail ude af Home Assistants historik."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Lås op eller genautoriser Bibliotek",
+        "description": "Indtast din krypteringsadgangskode for at låse op i hukommelsen, eller indtast dine biblioteksoplysninger igen.",
+        "data": {
+          "encryption_passphrase": "Krypteringsadgangskode",
+          "user_id": "CPR eller lånernummer",
+          "pincode": "PIN kode"
+        }
+      },
+      "reconfigure": {
+        "title": "Genkonfigurer Bibliotek",
+        "description": "Opdater dine biblioteksoplysninger eller skift mellem automatisk nøglefil og adgangskodekryptering.",
+        "data": {
+          "municipality": "Kommune",
+          "user_id": "CPR eller lånernummer",
+          "pincode": "PIN kode",
+          "encryption_passphrase": "Valgfri krypteringsadgangskode (lad stå tom for automatisk nøglefil)"
         }
       }
     }
   },
   "options": {
-    "step":{
+    "step": {
       "init": {
         "data": {
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
           "show_eloans": "Vis lån fra Biblo / eReolen",
           "show_debts": "Vis gebyrer",
-          "show_reservations": "Vis reservationer"
+          "show_reservations": "Vis reservationer",
+          "expose_personal_info": "Vis adresse, telefon og e-mail på sensorattributter"
         }
       }
     }
