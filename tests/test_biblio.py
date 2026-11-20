@@ -339,3 +339,38 @@ def test_failed_digital_refresh_keeps_other_material_count():
     lib._get.return_value = response(status=503)
     lib._fetchBiblioLoans()
     assert lib.user.otherDigitalLoans == 3
+
+
+def test_active_podcasts_and_quota_usage_are_distinct_and_retained_on_quota_outage():
+    from custom_components.bibliotek_dk.sensor import LibrarySensor
+    from tests.test_quotas import split_quota
+
+    lib = library()
+    lib.libraryName = "Test Library"
+    page = response(
+        {
+            "loans": [{**loan(str(i)), "material_type": "podcast"} for i in range(5)],
+            "pagination": {},
+        }
+    )
+    lib._get.side_effect = [
+        response([]),
+        page,
+        response({"loan_quotas": [split_quota()]}),
+        response([]),
+        page,
+        response(status=503),
+    ]
+    lib.fetchLoans()
+    attrs = LibrarySensor(lib, Mock(last_update_success=True)).extra_state_attributes
+    assert attrs["podcasts"] == 5
+    assert attrs["podcasts_quota_used"] == 0
+    assert attrs["podcasts_quota"] == 3
+    assert attrs["other_digital_loans"] == 5
+    lib.fetchLoans()
+    assert lib.user.digitalQuotaAttributes["podcasts_quota_used"] == 0
+    lib.use_eReolen = False
+    lib._get.side_effect = [response([])]
+    lib.fetchLoans()
+    assert lib.user.podcasts == 0
+    assert all(v is None for v in lib.user.digitalQuotaAttributes.values())

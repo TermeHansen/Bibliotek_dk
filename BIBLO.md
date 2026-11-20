@@ -43,6 +43,11 @@ and `audiobooks_quota` attributes show concurrent limits. Shared limits or
 multiple organizations cannot be represented by these two fields, so those
 fields are `null`. The general sensor's `digital_loans_quota` attribute
 contains the organization quotas, including monthly and concurrent limits.
+Flattened usage attributes are documented in the README. They read
+`current_concurrent_loans` and `current_monthly_loans` from the quota response,
+not the active-loan list. Despite its name, `current_monthly_loans` is documented
+as consumption within the configured period; monthly aliases therefore require
+an explicit one-month period. Podcast period information may be absent.
 
 Waiting reservations expose optional `queue_position` as `queue_number`;
 markets that omit it retain `null` and sort after numbered reservations. Available

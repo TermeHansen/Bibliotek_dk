@@ -52,6 +52,29 @@ per organization. If the library shares one allowance between e-books and
 audiobooks, `ebooks_quota` and `audiobooks_quota` are `null` rather than two
 independent allowances. See [BIBLO.md](BIBLO.md) for verification and limitations.
 
+Quota usage is reported by the API, not inferred from the active loan list.
+The following attributes use the prefixes `ebooks`, `audiobooks` and `podcasts`:
+
+| Suffix | Meaning |
+|---|---|
+| `_quota_used` / `_quota` | Concurrent quota consumption / maximum |
+| `_period_quota_used` / `_period_quota` | Consumption / maximum for the configured period |
+| `_quota_period` | Period as `{days, months}`, or `null` when unspecified |
+| `_monthly_quota_used` / `_monthly_quota` | Period consumption / maximum, only when the period is exactly one month |
+
+`ebooks`, `audiobooks` and the new `podcasts` attribute count active loans.
+Existing `other_digital_loans` still includes podcasts and other types outside
+e-books/audiobooks for compatibility; do not add it to `podcasts`.
+The same quota suffixes with prefix `shared` describe a combined quota.
+Missing values and per-format values for shared/multiple-organization quotas
+are `null`; organizations are never summed. Raw `digital_loans_quota` remains
+available. Failed quota requests retain the last successful values.
+
+The **Biblo Status** card in `dashboard.yaml` displays concurrent quota usage
+and monthly usage with separate e-book, audiobook and podcast columns. A `?`
+means the value or period is not known. Quota-exempt loans can make active
+loan counts higher than the displayed quota usage.
+
 **Existing dashboards:** digital materials can now have `type: audiobook` or
 `type: podcast` (e-books still use `epub`). If your template maps types to
 icons, add these values and use `types.get(book.type, '📖')` instead of

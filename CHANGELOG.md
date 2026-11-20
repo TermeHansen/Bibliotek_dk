@@ -1,5 +1,18 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.11.0
+
+**Date**: `2026-11-20`
+
+### Changes
+
+* Expose authoritative concurrent and period quota usage for e-books,
+  audiobooks and podcasts, alongside active podcast counts. Preserve existing
+  active-loan counters. Shared or ambiguous organization quotas are not summed.
+* Show quota usage rather than active loans in the Biblo status example,
+  including a podcast column. Missing values remain unknown; monthly aliases
+  require an explicitly configured one-month period.
+
 ## Version 0.10.0
 
 **Date**: `2026-11-19`

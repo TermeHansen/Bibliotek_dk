@@ -15,6 +15,7 @@ import re
 from requests.exceptions import RequestException
 
 from .biblio import BiblioClient, BiblioError
+from .quotas import quota_attributes
 
 from .const import (
     URL_BRANCH_GRAPHQL,
@@ -361,6 +362,8 @@ class Library:
             if res.status_code == 200:
                 edata = res.json()
                 self.user.otherDigitalLoans = 0
+                self.user.podcasts = 0
+                self.user.digitalQuotaAttributes = quota_attributes(None)
 
                 try:
                     self.user.eBooks = edata["userData"]["totalEbookLoans"]
@@ -419,6 +422,8 @@ class Library:
             self.user.audioBooks = 0
             self.user.audioBooksQuota = 0
             self.user.otherDigitalLoans = 0
+            self.user.podcasts = 0
+            self.user.digitalQuotaAttributes = quota_attributes(None)
             self.user.digitalLoansQuota = None
             self._loans["ereolen"] = []
             self._loans_overdue["ereolen"] = []
@@ -441,6 +446,7 @@ class Library:
         self._loans_overdue["ereolen"] = []
         self.user.eBooks = sum(loan.type == "epub" for loan in loans)
         self.user.audioBooks = sum(loan.type == "audiobook" for loan in loans)
+        self.user.podcasts = sum(loan.type == "podcast" for loan in loans)
         # Preserve undocumented/future types rather than inventing an audio
         # classification or silently losing them from the format counters.
         self.user.otherDigitalLoans = sum(
@@ -448,21 +454,10 @@ class Library:
         )
         try:
             quotas = self._biblio.quotas()
-            # An account can have quotas at several organizations. Do not
-            # silently sum them into a fictitious per-format allowance.
-            if len(quotas) == 1:
-                quota = quotas[0]
-                if quota["split_on_format"]:
-                    maximum = quota["max_concurrent_user_loans"]
-                    ebooks, audio = maximum["ebook"], maximum["audiobook"]
-                else:
-                    # Shared allowances cannot be expressed as two independent
-                    # quotas. The exact response is exposed separately below.
-                    ebooks, audio = None, None
-            else:
-                ebooks, audio = None, None
-            self.user.eBooksQuota = ebooks
-            self.user.audioBooksQuota = audio
+            attributes = quota_attributes(quotas)
+            self.user.eBooksQuota = attributes["ebooks_quota"]
+            self.user.audioBooksQuota = attributes["audiobooks_quota"]
+            self.user.digitalQuotaAttributes = attributes
             self.user.digitalLoansQuota = quotas
         except (BiblioError, RequestException, KeyError, TypeError, ValueError) as err:
             _LOGGER.warning(f"Error fetching Biblo quotas: {err}")

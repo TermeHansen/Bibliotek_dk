@@ -256,10 +256,21 @@ class LibrarySensor(BibliotekBaseSensor):
             "audiobooks_quota": self.myLibrary.user.audioBooksQuota,
             "other_digital_loans": self.myLibrary.user.otherDigitalLoans,
             "digital_loans_quota": self.myLibrary.user.digitalLoansQuota,
+            "podcasts": self.myLibrary.user.podcasts,
             "sensor_type": "main",
             ATTR_UNIT_OF_MEASUREMENT: "days",
             ATTR_ATTRIBUTION: CREDITS,
         }
+
+        # Keep legacy e-book/audio maxima for the Pubhub path, but use Biblio's
+        # own usage counters for quota consumption. Never infer usage from loans.
+        attr.update(
+            {
+                k: v
+                for k, v in self.myLibrary.user.digitalQuotaAttributes.items()
+                if k not in ("ebooks_quota", "audiobooks_quota")
+            }
+        )
 
         # PNG as icon/entity-picture
         if self.myLibrary.icon:

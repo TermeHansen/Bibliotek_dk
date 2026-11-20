@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+from .quotas import quota_attributes
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -36,6 +38,8 @@ class libraryUser:
         self.audioBooks = 0
         self.audioBooksQuota = 0
         self.otherDigitalLoans = 0
+        self.podcasts = 0
+        self.digitalQuotaAttributes = quota_attributes(None)
         self.digitalLoansQuota = None
         self.pickupLibrary = None
 
