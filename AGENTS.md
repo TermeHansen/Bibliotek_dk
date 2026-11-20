@@ -34,6 +34,7 @@ dashboard.yaml         # sample Lovelace dashboard (markdown templates)
 loans_card.yaml        # drop-in auto-entities card (self-discovers the sensor)
 loans_card_decluttering.yaml  # reusable decluttering-card template
 tests/                 # pytest suite; conftest.py stubs homeassistant (no HA needed)
+scripts/               # dev helpers; async_test_module.py logs in and dumps live status
 ```
 
 ## Commands

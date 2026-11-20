@@ -1,5 +1,22 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.9.1
+
+**Date**: `2026-11-20`
+
+### Changes
+
+* Add `scripts/async_test_module.py`, a development helper that logs in to the
+  library accounts and prints their current status (profile, loans, overdue
+  loans, reservations, ready reservations, fees, the digital counters and which
+  digital backend the site selects), either as a readable report or as JSON. It
+  runs the synchronous client through `asyncio.to_thread` and needs no Home
+  Assistant install.
+* The script fetches every account in the secrets file in one run and guards
+  against account lockouts: each user id is attempted at most once, and an id
+  paired with conflicting pincodes aborts before any network call.
+* No runtime change to the integration.
+
 ## Version 0.9.0
 
 **Date**: `2026-11-19`
