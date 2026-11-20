@@ -85,7 +85,7 @@ the transition; do not assume all old loans have migrated.
 ## Verification before release
 
 Synthetic tests cover provider selection, token forwarding, pagination,
-outage retention, UTC normalization, reservation offers, optional metadata,
+outage retention, local-time normalization, reservation offers, optional metadata,
 separate/shared quotas, and the existing digital-loans toggle.
 
 An authenticated smoke test against Sønderborg completed on 2026-11-19:
