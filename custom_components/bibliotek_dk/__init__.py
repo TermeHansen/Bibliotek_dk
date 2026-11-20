@@ -172,6 +172,62 @@ def _is_hex_md5(value: str | None) -> bool:
     )
 
 
+def _collect_claimed_unique_ids(registry: Any, entry_entities: list[Any]) -> set[str]:
+    """Collect all active unique IDs for this entry and platform to prevent collisions."""
+    claimed: set[str] = set()
+    for ent in entry_entities:
+        uid = getattr(ent, "unique_id", None)
+        if uid:
+            claimed.add(uid)
+    entities_map = getattr(registry, "entities", None)
+    if isinstance(entities_map, dict):
+        for ent in entities_map.values():
+            if getattr(ent, "platform", None) == DOMAIN:
+                uid = getattr(ent, "unique_id", None)
+                if uid:
+                    claimed.add(uid)
+    return claimed
+
+
+def _claim_unique_id(preferred: str, fallback_prefix: str, claimed: set[str]) -> str:
+    """Reserve ``preferred`` if free, otherwise the first unused ``<fallback_prefix>_<idx>``."""
+    if preferred not in claimed:
+        claimed.add(preferred)
+        return preferred
+    idx = 1
+    while True:
+        candidate = f"{fallback_prefix}_{idx}"
+        if candidate not in claimed:
+            claimed.add(candidate)
+            return candidate
+        idx += 1
+
+
+def _select_primary_main_entity(candidates: list[tuple[int, Any]]) -> Any:
+    """Pick the best legacy branch sensor to inherit the ``_main`` unique ID."""
+
+    def _sort_key(item: tuple[int, Any]) -> tuple[bool, bool, float, int]:
+        registry_index, ent = item
+        is_enabled = getattr(ent, "disabled_by", None) is None
+        created_at = getattr(ent, "created_at", None)
+        has_created_at = False
+        created_at_ts = 0.0
+        if created_at is not None:
+            ts_fn = getattr(created_at, "timestamp", None)
+            if callable(ts_fn):
+                has_created_at = True
+                created_at_ts = float(ts_fn())
+            elif isinstance(created_at, (int, float)) and not isinstance(
+                created_at, bool
+            ):
+                has_created_at = True
+                created_at_ts = float(created_at)
+        return (is_enabled, has_created_at, created_at_ts, registry_index)
+
+    _, selected = max(candidates, key=_sort_key)
+    return selected
+
+
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Migrate v1 plaintext config entries to v2 encrypted credentials."""
     if entry.version > 2:
@@ -220,22 +276,71 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         }
 
         registry = er.async_get(hass)
-        legacy_map = {
-            _legacy_md5_unique_id(prefix + plain_uid): f"{entry.entry_id}_{suffix}"
+        legacy_map: dict[str, tuple[str, str]] = {
+            _legacy_md5_unique_id(prefix + plain_uid): (
+                f"{entry.entry_id}_{suffix}",
+                suffix,
+            )
             for prefix, suffix in _LEGACY_ENTITY_SUFFIXES
         }
-        for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
-            if entity_entry.unique_id.startswith(f"{entry.entry_id}_"):
+        entry_entities = list(
+            er.async_entries_for_config_entry(registry, entry.entry_id)
+        )
+        claimed = _collect_claimed_unique_ids(registry, entry_entities)
+        legacy_main_candidates: list[tuple[int, Any]] = []
+
+        for idx, entity_entry in enumerate(entry_entities):
+            old_uid = entity_entry.unique_id
+            if isinstance(old_uid, str) and old_uid.startswith(f"{entry.entry_id}_"):
                 continue
-            if entity_entry.unique_id in legacy_map:
-                registry.async_update_entity(
-                    entity_entry.entity_id,
-                    new_unique_id=legacy_map[entity_entry.unique_id],
+            if old_uid in legacy_map:
+                target_uid, suffix = legacy_map[old_uid]
+                new_uid = _claim_unique_id(
+                    target_uid, f"{entry.entry_id}_legacy_{suffix}", claimed
                 )
-            elif _is_hex_md5(entity_entry.unique_id):
                 registry.async_update_entity(
                     entity_entry.entity_id,
-                    new_unique_id=f"{entry.entry_id}_main",
+                    new_unique_id=new_uid,
+                )
+                claimed.discard(old_uid)
+            elif _is_hex_md5(old_uid):
+                legacy_main_candidates.append((idx, entity_entry))
+
+        if legacy_main_candidates:
+            primary_uid = f"{entry.entry_id}_main"
+            primary_entity = None
+            if primary_uid not in claimed:
+                primary_entity = _select_primary_main_entity(legacy_main_candidates)
+                old_primary_uid = primary_entity.unique_id
+                registry.async_update_entity(
+                    primary_entity.entity_id,
+                    new_unique_id=primary_uid,
+                )
+                claimed.add(primary_uid)
+                claimed.discard(old_primary_uid)
+
+            legacy_main_count = 0
+            for _, ent in legacy_main_candidates:
+                if ent is primary_entity:
+                    continue
+                old_ent_uid = ent.unique_id
+                fallback_uid = _claim_unique_id(
+                    f"{entry.entry_id}_legacy_main_1",
+                    f"{entry.entry_id}_legacy_main",
+                    claimed,
+                )
+                registry.async_update_entity(
+                    ent.entity_id,
+                    new_unique_id=fallback_uid,
+                )
+                claimed.discard(old_ent_uid)
+                legacy_main_count += 1
+
+            if legacy_main_count > 0:
+                _LOGGER.warning(
+                    "Migrated %s historical pickup-branch sensor(s) for config entry %s to legacy unique IDs",
+                    legacy_main_count,
+                    entry.entry_id,
                 )
 
         hass.config_entries.async_update_entry(

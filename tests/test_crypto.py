@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 from pathlib import Path
 import stat
+import threading
 
 import pytest
 
@@ -228,3 +230,68 @@ def test_decrypt_entry_credentials_handles_all_modes(tmp_path: Path):
 
     legacy_data = {CONF_USER_ID: cpr, CONF_PINCODE: pin}
     assert decrypt_entry_credentials(hass, legacy_data, "710100") == (cpr, pin)
+
+
+def test_load_or_create_key_file_concurrent_threads_share_single_key(tmp_path: Path):
+    key_path = tmp_path / ".storage" / KEY_FILE_NAME
+    num_threads = 16
+    barrier = threading.Barrier(num_threads)
+    keys: list[bytes] = []
+    errors: list[BaseException] = []
+    results_lock = threading.Lock()
+
+    def worker() -> None:
+        try:
+            barrier.wait(timeout=5)
+            key = load_or_create_key_file(key_path)
+            with results_lock:
+                keys.append(key)
+        except BaseException as err:  # noqa: BLE001
+            with results_lock:
+                errors.append(err)
+
+    threads = [threading.Thread(target=worker) for _ in range(num_threads)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors
+    assert len(keys) == num_threads
+    assert len(set(keys)) == 1
+    assert keys[0] == load_or_create_key_file(key_path)
+    assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+    assert list(key_path.parent.glob("*.tmp")) == []
+
+
+def test_load_or_create_key_file_never_overwrites_on_cross_process_race(
+    tmp_path: Path, monkeypatch
+):
+    key_path = tmp_path / ".storage" / KEY_FILE_NAME
+    existing_key = bytes(range(32))
+    encoded_existing = base64.urlsafe_b64encode(existing_key).decode("ascii") + "\n"
+
+    real_link = os.link
+    injected = False
+
+    def racing_link(src, dst, *args, **kwargs):
+        nonlocal injected
+        if not injected and Path(dst) == key_path:
+            injected = True
+            fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, encoded_existing.encode("ascii"))
+            finally:
+                os.close(fd)
+        return real_link(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "link", racing_link)
+
+    returned_key = load_or_create_key_file(key_path)
+    assert injected is True
+    assert returned_key == existing_key
+    assert (
+        base64.urlsafe_b64decode(key_path.read_text(encoding="ascii").strip())
+        == existing_key
+    )
+    assert list(key_path.parent.glob("*.tmp")) == []

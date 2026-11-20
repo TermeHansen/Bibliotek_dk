@@ -54,6 +54,7 @@ from .crypto import (
     compute_keyed_unique_id,
     compute_passphrase_unique_id,
     decrypt_entry_credentials,
+    decrypt_with_passphrase,
     encrypt_with_key,
     encrypt_with_passphrase,
     get_or_create_master_key,
@@ -191,6 +192,90 @@ def _encrypt_credentials_sync(
     return enc_uid, enc_pin, ENCRYPTION_MODE_KEYFILE, uid_hash
 
 
+def _check_existing_entries_sync(
+    hass: HomeAssistant,
+    plain_uid: str,
+    host: str,
+    passphrase: str,
+    exclude_entry_id: str | None,
+) -> None:
+    """Check loaded and unloaded config entries for duplicate accounts on ``host``."""
+    loaded_ids: set[str] = set()
+    for entry_id, library_obj in hass.data.get(DOMAIN, {}).items():
+        loaded_ids.add(entry_id)
+        if exclude_entry_id and entry_id == exclude_entry_id:
+            continue
+        if library_obj.host == host and hmac.compare_digest(
+            library_obj.user.userId.encode("utf-8"),
+            plain_uid.encode("utf-8"),
+        ):
+            raise UserExist
+
+    config_entries_mgr = getattr(hass, "config_entries", None)
+    if config_entries_mgr is None or not hasattr(config_entries_mgr, "async_entries"):
+        return
+
+    stored_passphrases = hass.data.get(DATA_PASSPHRASES, {})
+    escrow_passphrase = str(hass.data.get(DATA_ESCROW_PASSPHRASE, "") or "")
+    has_locked_same_host = False
+
+    for entry in config_entries_mgr.async_entries(DOMAIN):
+        entry_id = getattr(entry, "entry_id", None)
+        if entry_id in loaded_ids or (
+            exclude_entry_id and entry_id == exclude_entry_id
+        ):
+            continue
+        entry_data = getattr(entry, "data", None) or {}
+        if entry_data.get(CONF_HOST) != host:
+            continue
+        entry_uid_raw = entry_data.get(CONF_USER_ID)
+        if not entry_uid_raw:
+            continue
+        entry_agency = str(entry_data.get(CONF_AGENCY, ""))
+        entry_is_pass = entry_data.get(
+            CONF_ENCRYPTION_MODE
+        ) == ENCRYPTION_MODE_PASSPHRASE or is_passphrase_encrypted(entry_uid_raw)
+
+        if entry_is_pass:
+            candidates: list[str] = []
+            for cand in (
+                stored_passphrases.get(entry_id),
+                escrow_passphrase,
+                passphrase,
+            ):
+                if cand and cand not in candidates:
+                    candidates.append(cand)
+            existing_uid: str | None = None
+            for cand in candidates:
+                try:
+                    existing_uid = decrypt_with_passphrase(
+                        cand,
+                        entry_uid_raw,
+                        field=CONF_USER_ID,
+                        agency=entry_agency,
+                    )
+                    break
+                except (PassphraseRequiredError, CredentialDecryptionError):
+                    continue
+            if existing_uid is None:
+                has_locked_same_host = True
+                continue
+        else:
+            try:
+                existing_uid, _ = decrypt_entry_credentials(
+                    hass, entry_data, entry_agency
+                )
+            except (PassphraseRequiredError, CredentialDecryptionError):
+                has_locked_same_host = True
+                continue
+
+        if hmac.compare_digest(existing_uid.encode("utf-8"), plain_uid.encode("utf-8")):
+            raise UserExist
+
+    if has_locked_same_host:
+        raise LockedEntriesExist
+
+
 async def _verify_and_encrypt(
     hass: HomeAssistant,
     *,
@@ -202,18 +287,14 @@ async def _verify_and_encrypt(
     passphrase: str,
     exclude_entry_id: str | None = None,
 ) -> tuple[str, str, str, str]:
-    if DOMAIN in hass.data:
-        for entry_id, library_obj in hass.data[DOMAIN].items():
-            if exclude_entry_id and entry_id == exclude_entry_id:
-                continue
-            if (
-                hmac.compare_digest(
-                    library_obj.user.userId.encode("utf-8"),
-                    plain_uid.encode("utf-8"),
-                )
-                and library_obj.host == host
-            ):
-                raise UserExist
+    await hass.async_add_executor_job(
+        _check_existing_entries_sync,
+        hass,
+        plain_uid,
+        host,
+        passphrase,
+        exclude_entry_id,
+    )
 
     my_library = Library(
         plain_uid,
@@ -336,6 +417,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 info = await validate_input(self.hass, user_input, libraries)
             except UserExist:
                 errors["base"] = "user_exist"
+            except LockedEntriesExist:
+                errors["base"] = "locked_entries_exist"
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -458,6 +541,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             except UserExist:
                 errors["base"] = "user_exist"
+            except LockedEntriesExist:
+                errors["base"] = "locked_entries_exist"
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -530,6 +615,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             except UserExist:
                 errors["base"] = "user_exist"
+            except LockedEntriesExist:
+                errors["base"] = "locked_entries_exist"
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
@@ -629,6 +716,10 @@ class gatewayf(HomeAssistantError):
 
 class UserExist(HomeAssistantError):
     """Error to indicate user allready exist."""
+
+
+class LockedEntriesExist(HomeAssistantError):
+    """Error to indicate locked passphrase-protected entries exist for this host."""
 
 
 class CannotConnect(HomeAssistantError):

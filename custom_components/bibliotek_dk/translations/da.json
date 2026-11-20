@@ -8,6 +8,7 @@
     "error": {
       "gatewayf": "Din kommune bruger WAYF som login og understøttes ikke af integrationen",
       "user_exist": "Brugeren er allerede oprettet",
+      "locked_entries_exist": "Lås eksisterende adgangskodebeskyttede konti for dette bibliotek op, før du tilføjer eller ændrer konti",
       "cannot_connect": "Problem med forbindelsen",
       "invalid_auth": "Forkert id eller pin kode",
       "invalid_passphrase": "Ugyldig krypteringsadgangskode",

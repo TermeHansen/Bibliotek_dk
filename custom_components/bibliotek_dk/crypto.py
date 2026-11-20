@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import base64
+import contextlib
+import errno
 import hashlib
 import hmac
 import logging
 import os
 from pathlib import Path
+import secrets
+import threading
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
@@ -40,6 +44,19 @@ _SCRYPT_R = 8
 _SCRYPT_P = 1
 _EXT_MASTER_SALT = b"bibliotek_dk:ext-master:v1"
 _UID_PASSPHRASE_SALT = b"bibliotek_dk:uid:p1"
+
+_KEY_FILE_LOCKS_GUARD = threading.Lock()
+_KEY_FILE_LOCKS: dict[Path, threading.Lock] = {}
+
+
+def _key_file_lock(path: Path) -> threading.Lock:
+    resolved = path.resolve(strict=False)
+    with _KEY_FILE_LOCKS_GUARD:
+        lock = _KEY_FILE_LOCKS.get(resolved)
+        if lock is None:
+            lock = threading.Lock()
+            _KEY_FILE_LOCKS[resolved] = lock
+        return lock
 
 
 class CredentialDecryptionError(Exception):
@@ -185,42 +202,85 @@ def compute_passphrase_unique_id(passphrase: str, host: str, user_id: str) -> st
     return f"hmac_p1:{digest}"
 
 
+def _read_key_file(path: Path) -> bytes:
+    mode = path.stat().st_mode & 0o777
+    if mode & 0o077:
+        _LOGGER.warning(
+            "Key file %s has permissive permissions (%04o); recommend 0600",
+            path,
+            mode,
+        )
+    try:
+        raw_text = path.read_text(encoding="ascii").strip()
+        key = base64.urlsafe_b64decode(raw_text.encode("ascii"))
+    except (OSError, ValueError, UnicodeDecodeError) as err:
+        raise CredentialDecryptionError(f"Failed to read key file {path}") from err
+    if len(key) != _KEY_LEN:
+        raise CredentialDecryptionError(f"Invalid key length in {path}")
+    return key
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        if written <= 0:
+            raise OSError("Short write while writing key file")
+        view = view[written:]
+
+
 def load_or_create_key_file(path: Path) -> bytes:
     """Load a 32-byte master key from ``path`` or create one atomically (0600)."""
-    if path.exists():
-        mode = path.stat().st_mode & 0o777
-        if mode & 0o077:
-            _LOGGER.warning(
-                "Key file %s has permissive permissions (%04o); recommend 0600",
-                path,
-                mode,
-            )
-        try:
-            raw_text = path.read_text(encoding="ascii").strip()
-            key = base64.urlsafe_b64decode(raw_text.encode("ascii"))
-        except (OSError, ValueError, UnicodeDecodeError) as err:
-            raise CredentialDecryptionError(f"Failed to read key file {path}") from err
-        if len(key) != _KEY_LEN:
-            raise CredentialDecryptionError(f"Invalid key length in {path}")
-        return key
+    with _key_file_lock(path):
+        if path.exists():
+            return _read_key_file(path)
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    key = os.urandom(_KEY_LEN)
-    encoded = (base64.urlsafe_b64encode(key).decode("ascii") + "\n").encode("ascii")
-    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        os.fchmod(fd, 0o600)
-        os.write(fd, encoded)
-        os.fsync(fd)
-    except Exception:
-        os.close(fd)
-        if tmp_path.exists():
-            tmp_path.unlink()
-        raise
-    os.close(fd)
-    os.replace(tmp_path, path)
-    return key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        key = os.urandom(_KEY_LEN)
+        encoded = (base64.urlsafe_b64encode(key).decode("ascii") + "\n").encode("ascii")
+        tmp_path = path.with_name(
+            f".{path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(8)}.tmp"
+        )
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            try:
+                os.fchmod(fd, 0o600)
+                _write_all(fd, encoded)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+
+            try:
+                os.link(tmp_path, path)
+            except FileExistsError:
+                return _read_key_file(path)
+            except OSError as err:
+                if err.errno not in (
+                    errno.EPERM,
+                    errno.EXDEV,
+                    errno.EOPNOTSUPP,
+                    errno.ENOSYS,
+                ):
+                    raise
+                try:
+                    fd_dst = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:
+                    return _read_key_file(path)
+                try:
+                    os.fchmod(fd_dst, 0o600)
+                    _write_all(fd_dst, encoded)
+                    os.fsync(fd_dst)
+                except Exception:
+                    with contextlib.suppress(OSError):
+                        path.unlink()
+                    raise
+                finally:
+                    os.close(fd_dst)
+        finally:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+
+        return key
 
 
 def get_or_create_master_key(hass) -> bytes:

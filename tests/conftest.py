@@ -278,12 +278,21 @@ if "homeassistant" not in sys.modules:
         """Minimal entity-registry record."""
 
         def __init__(
-            self, entity_id, unique_id, config_entry_id, platform="bibliotek_dk"
+            self,
+            entity_id,
+            unique_id,
+            config_entry_id,
+            platform="bibliotek_dk",
+            *,
+            disabled_by=None,
+            created_at=None,
         ):
             self.entity_id = entity_id
             self.unique_id = unique_id
             self.config_entry_id = config_entry_id
             self.platform = platform
+            self.disabled_by = disabled_by
+            self.created_at = created_at
 
     class _FakeEntityRegistry:
         """Minimal EntityRegistry stub supporting async_update_entity."""
@@ -292,9 +301,19 @@ if "homeassistant" not in sys.modules:
             self.entities = {}
 
         def async_update_entity(self, entity_id, *, new_unique_id=None):
-            if entity_id in self.entities and new_unique_id is not None:
-                self.entities[entity_id].unique_id = new_unique_id
-                return self.entities[entity_id]
+            entry = self.entities.get(entity_id)
+            if entry is not None and new_unique_id is not None:
+                for other in self.entities.values():
+                    if (
+                        other is not entry
+                        and other.platform == entry.platform
+                        and other.unique_id == new_unique_id
+                    ):
+                        raise ValueError(
+                            f"Unique id {new_unique_id} is already in use by {other.entity_id}"
+                        )
+                entry.unique_id = new_unique_id
+                return entry
             return None
 
     entity_registry = types.ModuleType("homeassistant.helpers.entity_registry")
