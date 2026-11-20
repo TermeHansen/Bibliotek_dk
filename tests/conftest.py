@@ -184,6 +184,40 @@ if "homeassistant" not in sys.modules:
     update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
     update_coordinator.DataUpdateCoordinator = object
 
+    class CoordinatorEntity:
+        """Minimal HA coordinator contract for integration wiring tests.
+
+        This is a stand-in, not a test of Home Assistant's implementation.
+        """
+
+        def __init__(self, coordinator, context=None):
+            self.coordinator = coordinator
+            self.coordinator_context = context
+
+        @property
+        def should_poll(self):
+            return False
+
+        @property
+        def available(self):
+            return self.coordinator.last_update_success
+
+        async def async_update(self):
+            if self.enabled:
+                await self.coordinator.async_request_refresh()
+
+        async def async_added_to_hass(self):
+            self.async_on_remove(
+                self.coordinator.async_add_listener(
+                    self._handle_coordinator_update, self.coordinator_context
+                )
+            )
+
+        def _handle_coordinator_update(self):
+            self.async_write_ha_state()
+
+    update_coordinator.CoordinatorEntity = CoordinatorEntity
+
     class UpdateFailed(Exception):
         """Fake UpdateFailed raised when a coordinator update fails."""
 

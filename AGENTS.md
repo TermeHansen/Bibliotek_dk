@@ -34,6 +34,7 @@ dashboard.yaml         # sample Lovelace dashboard (markdown templates)
 loans_card.yaml        # drop-in auto-entities card (self-discovers the sensor)
 loans_card_decluttering.yaml  # reusable decluttering-card template
 tests/                 # pytest suite; conftest.py stubs homeassistant (no HA needed)
+scripts/               # dev helpers; async_test_module.py logs in and dumps live status
 ```
 
 ## Commands
@@ -162,13 +163,40 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   unavailable — the wrong-PIN path and the token-expiry re-login were verified
   against two real accounts on 2026-10-24.
 - **Known open findings are tracked in `IMPROVEMENT_PLAN.md` Section 7** (from
-  the 2026-10-23 full review; 7.1/7.2/7.4/7.5/7.6 fixed in 0.8.1). Read it
-  before changing the fetchers: eReolen products are fetched one request per
-  item per poll with no cache (7.3), and the `_getDetails` fallback host is
-  suspect (7.9).
-- **`_getDetails` falls back to a staging host** (`temp.fbi-api.dbc.dk`) when
-  the scraped `data-fbi-global-base-url` is missing; treat that fallback as
-  suspect (plan 7.9).
+  the 2026-10-23 full review; 7.1/7.2/7.4/7.5/7.6 fixed in 0.8.1, 7.9 in
+  0.9.2). Read it before changing the fetchers: eReolen products are still
+  fetched one request per item per poll with no cache (7.3). Section 8 records
+  what the Biblo app API can and cannot replace.
+- **`_getDetails` reads the Biblo app API, not the library website** (0.9.2).
+  It calls `GET {URL_DDF_BASE}/v1/agencies/{agency}/records/{recordId}` with
+  `ddf_header` — client-hint headers and the Biblo app's `x-api-key`, and
+  deliberately **no** bearer token, because the endpoint is anonymous. The
+  response is flat, and `models.libraryMaterial` reads that flat record
+  (`recordId`/`title`/`creators`/`coverUrl`/`materialType`/`workId`) directly —
+  there is no adapter and no nested `manifestation` shape any more.
+  FBS reports a bare faust (`39134543`) and the API answers 400 for that, so
+  `_recordId()` expands it to `870970-basis:<faust>`; an id that already
+  contains `:` is left alone. This closed plan 7.9 (no staging-host fallback).
+  A 200 carrying `{"data": null}` is a **failed lookup, not a hit**: it must
+  return `{}` and stay out of `_details`, or the caller gets `None` and every
+  later lookup for that id returns it too.
+- **The library list comes from the API alone, and the municipality is resolved
+  by name** (0.9.3). `refreshLibraries()` calls `_librariesFromDdf()`
+  (`GET /v1/agencies`) and raises `CannotConnect` when it yields nothing; the
+  old login-page scrape (`var libraries`) is deleted, because it depended on the
+  page's HTML shape and was the coupling this endpoint removes. The API also
+  **omits the Faroese and Greenlandic agencies**, which work, so
+  `EXTRA_LIBRARIES` adds them back; do not replace that with a plain API
+  pass-through. The API carries **no gatewayf flag**, so the five libraries the
+  scrape used to hide (Assens, Langeland, Nordfyns, Odense, Svendborg) are now
+  listed like any other — they serve the same borchk form. The dropdown is keyed
+  by agency name ("Københavns Biblioteker") while `municipalityFromCoor` returns
+  the municipality ("København"), so `resolveMunicipality()` does exact → alias
+  → folded-unique-substring and returns `None` rather than guessing on an
+  ambiguous match. `MUNICIPALITY_ALIASES` holds the only municipality with no
+  name overlap (`Thisted` → `Biblioteket i Thy`). Both the dropdown default and
+  `validate_input` go through that resolver; an exact dict lookup would break
+  13 of the 98 municipalities.
 - **`renew_id` is exposed only on the loans sensor**, not the overdue sensor —
   overdue items are the same loans, so the id is available if a future renew UX
   needs it.

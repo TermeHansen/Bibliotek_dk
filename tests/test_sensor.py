@@ -7,6 +7,7 @@ coordinator stub, so no Home Assistant machinery is required (see conftest.py).
 from __future__ import annotations
 
 import datetime as dt
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -86,14 +87,12 @@ def _library():
 def _loan(title, expire):
     mat = libraryMaterial(
         {
-            "manifestation": {
-                "pid": "p",
-                "ownerWork": {"workId": "work-of:x"},
-                "titles": {"full": [title]},
-                "creators": [{"display": "Author"}],
-                "cover": {"thumbnail": "c"},
-                "materialTypes": [{"materialTypeSpecific": {"display": "bog"}}],
-            }
+            "recordId": "870970-basis:1",
+            "workId": "work-of:x",
+            "title": title,
+            "creators": ["Author"],
+            "coverUrl": "c",
+            "materialType": {"display": "bog"},
         }
     )
     loan = libraryLoan.__new__(libraryLoan)
@@ -197,6 +196,58 @@ def test_sensor_availability_follows_coordinator():
     assert sensor.available is False
     sensor = LibrarySensor(lib, FakeCoordinator(success=True))
     assert sensor.available is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sensor_class",
+    [
+        LibrarySensor,
+        LoanSensor,
+        LoanOverdueSensor,
+        DebtSensor,
+        ReservationSensor,
+        ReservationReadySensor,
+    ],
+)
+async def test_all_sensors_use_coordinator_lifecycle(sensor_class):
+    from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+    lib = _library()
+    coordinator = FakeCoordinator()
+    callbacks = []
+
+    def add_listener(callback, context=None):
+        callbacks.append(callback)
+        return lambda: callbacks.remove(callback)
+
+    coordinator.async_add_listener = add_listener
+    coordinator.async_request_refresh = AsyncMock()
+    sensor = sensor_class(
+        lib if sensor_class is LibrarySensor else lib.user, coordinator
+    )
+    assert isinstance(sensor, CoordinatorEntity)
+    assert not sensor.should_poll
+    sensor.enabled = True
+    removers = []
+    sensor.async_on_remove = removers.append
+    sensor.async_write_ha_state = Mock()
+    await sensor.async_added_to_hass()
+    assert len(callbacks) == 1
+    callbacks[0]()
+    sensor.async_write_ha_state.assert_called_once()
+    coordinator.last_update_success = False
+    assert not sensor.available
+    coordinator.last_update_success = True
+    assert sensor.available
+    await sensor.async_update()
+    coordinator.async_request_refresh.assert_awaited_once()
+    sensor.enabled = False
+    await sensor.async_update()
+    coordinator.async_request_refresh.assert_awaited_once()
+    for remove in removers:
+        remove()
+    assert callbacks == []
 
 
 def _entry_data(**overrides):

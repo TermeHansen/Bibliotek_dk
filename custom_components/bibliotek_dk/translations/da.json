@@ -4,7 +4,6 @@
       "already_configured": "Du har allerede konfigureret"
     },
     "error": {
-      "gatewayf": "Din kommune bruger WAYF som login og understøttes ikke af integrationen",
       "user_exist": "Brugeren er allerede oprettet",
       "cannot_connect": "Problem med forbindelsen",
       "invalid_auth": "forkert id eller pin kode",
