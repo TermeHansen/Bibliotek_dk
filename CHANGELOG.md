@@ -13,6 +13,9 @@
   item 7.9. The endpoint needs no patron login, so it cannot be affected by
   session or token problems, and it returns richer data than the old lookup
   (publisher, page count, edition, series, shelfmark).
+* `models.libraryMaterial` reads that flat record directly; the nested
+  `manifestation` shape the old GraphQL call returned is no longer produced or
+  expected anywhere.
 * A bare faust is expanded to its `870970-basis:` record id, which is the form
   the record endpoint requires.
 * The config flow falls back to the Biblo API's JSON agency list when the login

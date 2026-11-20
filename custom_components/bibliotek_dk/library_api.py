@@ -295,7 +295,7 @@ class Library:
         )
         if res.status_code == 200:
             try:
-                data = {"manifestation": self._manifestation(res.json()["data"])}
+                data = res.json()["data"]
             except (KeyError, TypeError, ValueError) as err:
                 # An unexpected payload is a failed lookup, not a crash: the
                 # loan keeps its dates and loses only its details.
@@ -314,26 +314,6 @@ class Library:
                 f"'{faust}' ({res.status_code})"
             )
         return data
-
-    @staticmethod
-    def _manifestation(record):
-        """Map a record payload onto the manifestation shape the models read.
-
-        The record endpoint returns flat fields; ``libraryMaterial`` expects the
-        nested GraphQL manifestation. Adapting here keeps the models and every
-        caller unchanged.
-        """
-        creators = record.get("creators") or []
-        material_type = record.get("materialType") or {}
-        return {
-            "ownerWork": {"workId": record.get("workId")},
-            "titles": {"full": [record["title"]]},
-            "creators": [{"display": creator} for creator in creators],
-            "cover": {"thumbnail": record.get("coverUrl")},
-            "materialTypes": [
-                {"materialTypeSpecific": {"display": material_type.get("display")}}
-            ],
-        }
 
     @property
     def urls(self):

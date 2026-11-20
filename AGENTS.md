@@ -171,8 +171,9 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   It calls `GET {URL_DDF_BASE}/v1/agencies/{agency}/records/{recordId}` with
   `ddf_header` — client-hint headers and the Biblo app's `x-api-key`, and
   deliberately **no** bearer token, because the endpoint is anonymous. The
-  response is flat; `_manifestation()` adapts it to the nested GraphQL shape
-  `models.libraryMaterial` expects, so the models and callers stay unchanged.
+  response is flat, and `models.libraryMaterial` reads that flat record
+  (`recordId`/`title`/`creators`/`coverUrl`/`materialType`/`workId`) directly —
+  there is no adapter and no nested `manifestation` shape any more.
   FBS reports a bare faust (`39134543`) and the API answers 400 for that, so
   `_recordId()` expands it to `870970-basis:<faust>`; an id that already
   contains `:` is left alone. This closed plan 7.9 (no staging-host fallback).

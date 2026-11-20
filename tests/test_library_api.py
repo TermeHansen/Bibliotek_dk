@@ -20,30 +20,16 @@ from custom_components.bibliotek_dk.library_api import (
 )
 
 
-def _manifestation(pid="870970-basis:123", work_id="work-of:870970-basis:123"):
-    """Build a physical-manifestation details payload."""
-    return {
-        "manifestation": {
-            "pid": pid,
-            "ownerWork": {"workId": work_id},
-            "titles": {"full": ["Some Title"]},
-            "creators": [{"display": "A. Author"}],
-            "cover": {"thumbnail": "https://example.invalid/cover.jpg"},
-            "materialTypes": [{"materialTypeSpecific": {"display": "bog"}}],
-        }
-    }
-
-
 def test_sort_lists_orders_loans_by_expire_then_title():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
-    later = libraryLoan(_manifestation())
+    later = libraryLoan(_record())
     later.title = "B"
     later.expireDate = dt.datetime(2026, 2, 1)
-    sooner = libraryLoan(_manifestation())
+    sooner = libraryLoan(_record())
     sooner.title = "A"
     sooner.expireDate = dt.datetime(2026, 1, 1)
     # A loan with no expireDate must sort last.
-    undated = libraryLoan(_manifestation())
+    undated = libraryLoan(_record())
     undated.title = "C"
     undated.expireDate = None
 
@@ -57,11 +43,11 @@ def test_sort_lists_orders_loans_by_expire_then_title():
 
 def test_sort_lists_orders_reservations_by_queue_number():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
-    q3 = libraryReservation(_manifestation())
+    q3 = libraryReservation(_record())
     q3.title = "third"
     q3.queueNumber = 3
     q3.createdDate = dt.datetime(2026, 1, 1)
-    q1 = libraryReservation(_manifestation())
+    q1 = libraryReservation(_record())
     q1.title = "first"
     q1.queueNumber = 1
     q1.createdDate = dt.datetime(2026, 1, 2)
@@ -76,10 +62,10 @@ def test_sort_lists_orders_reservations_by_queue_number():
 
 def test_sort_lists_orders_ready_reservations_by_pickup_date():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
-    later = libraryReservationReady(_manifestation())
+    later = libraryReservationReady(_record())
     later.title = "later"
     later.pickupDate = dt.datetime(2026, 3, 1)
-    sooner = libraryReservationReady(_manifestation())
+    sooner = libraryReservationReady(_record())
     sooner.title = "sooner"
     sooner.pickupDate = dt.datetime(2026, 2, 1)
 
@@ -110,7 +96,7 @@ def test_sort_overdue_and_debts_by_date_then_title_with_missing_values(
     ]
     items = []
     for title, date in specs:
-        item = model(_manifestation())
+        item = model(_record())
         item.title = title
         setattr(item, date_attr, date)
         items.append(item)
@@ -191,7 +177,9 @@ def _ready_library(session):
     """A Library with a valid token and a stubbed session (no login calls)."""
     lib = Library("1234", "0000", "https://example.invalid", "710100")
     lib.session = session
-    lib._urls = {"data-fbi-global-base-url": "https://details.invalid/graphql"}
+    # Pre-seed the discovered config so update() does not hit the network, and
+    # pin the adapter flag off so no BiblioClient is built.
+    lib._urls = {"data-use-biblio-adapter-config": "0"}
     lib._transport._user_token = "x" * 8
     lib._transport._user_token_exp = dt.datetime.now() + dt.timedelta(hours=1)
     return lib
@@ -224,13 +212,12 @@ def test_get_details_caches_successful_lookup():
     payload = {"data": _record()}
     session = _FakeSession(get=_FakeResponse(payload=payload))
     lib = _ready_library(session)
-    manifestation = lib._getDetails("faust-1")["manifestation"]
-    assert manifestation["titles"]["full"] == ["Some Title"]
-    assert lib._details["faust-1"]["manifestation"] == manifestation
+    record = lib._getDetails("faust-1")
+    assert record["title"] == "Some Title"
+    assert lib._details["faust-1"] == record
 
 
-def test_get_details_maps_record_onto_manifestation():
-    # The models read the nested GraphQL shape, so the adapter must produce it.
+def test_get_details_maps_record_onto_material():
     session = _FakeSession(get=_FakeResponse(payload={"data": _record()}))
     lib = _ready_library(session)
     loan = libraryLoan(lib._getDetails("faust-1"))
@@ -429,10 +416,10 @@ def test_sort_lists_handles_missing_titles():
     # shared sort date must not mix None with str (TypeError aborts the refresh).
     lib = Library("1234", "0000", "https://example.invalid", "710100")
     due = dt.datetime(2026, 1, 1)
-    titled = libraryLoan(_manifestation())
+    titled = libraryLoan(_record())
     titled.title = "A"
     titled.expireDate = due
-    untitled = libraryLoan(_manifestation())
+    untitled = libraryLoan(_record())
     untitled.title = None
     untitled.expireDate = due
 
@@ -450,7 +437,7 @@ def test_fetch_loans_keeps_previous_state_on_api_error():
     # the list must not be replaced with empty data.
     lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
     lib.use_eReolen = False
-    existing = libraryLoan(_manifestation())
+    existing = libraryLoan(_record())
     existing.title = "Existing"
     lib._loans["physical"] = [existing]
 
@@ -462,7 +449,7 @@ def test_fetch_loans_keeps_previous_state_on_api_error():
 def test_fetch_reservations_keeps_previous_state_on_api_error():
     lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
     lib.use_eReolen = False
-    existing = libraryReservation(_manifestation())
+    existing = libraryReservation(_record())
     existing.title = "Existing"
     lib._reservations["physical"] = [existing]
 
@@ -554,7 +541,7 @@ def test_fetch_loans_keeps_ereolen_when_physical_fails():
 
 def test_fetch_debts_keeps_previous_state_on_api_error():
     lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
-    existing = libraryDebt(_manifestation())
+    existing = libraryDebt(_record())
     existing.feeAmount = "10.00"
     lib.user.debts = [existing]
     lib.user.debtsAmount = 10.0

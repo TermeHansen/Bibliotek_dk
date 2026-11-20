@@ -55,7 +55,7 @@ Duplicate `_LOGGER` lines removed from `library_api.py` and `sensor.py`.
 `tests/` added, following the sibling `affalddk` repo: `conftest.py` stubs the
 `homeassistant` package, so the suite runs **without a HA install**. Covers:
 - `sortLists()` ordering (loans by expire, reservations by queue, ready by pickup).
-- `libraryMaterial` parsing for both eReolen and `manifestation` payloads,
+- `libraryMaterial` parsing for both eReolen and physical record payloads,
   including the new `url` fields and the missing-field cases.
 - `md5_unique_id` stability, `_branchName` id-splitting, `use_eReolen` plumbing,
   the `_user_token_exp` regression.
@@ -350,6 +350,11 @@ breakage when DBC rotates them.
   genre[], edition, originalTitle, series, shelfmark{}, audience, extent,
   notes[] — a superset of the old lookup. Requires a full record id; a bare
   faust must be expanded to `870970-basis:<faust>` or the API answers 400.
+  `libraryMaterial` reads this flat record directly: the nested `manifestation`
+  shape only ever existed because the old GraphQL call returned it, so an
+  adapter would have been a translation layer between two shapes neither of
+  which the API produces. Removing it also means the models can see the extra
+  fields (isbn, shelfmark, genre, ...) if they are ever surfaced.
 - **Agency list as fallback** — `GET /v1/agencies`. 101 agencies as JSON with
   id, name, address, phone, email, urlDomain. Used only when the login page's
   `var libraries` script cannot be parsed.
