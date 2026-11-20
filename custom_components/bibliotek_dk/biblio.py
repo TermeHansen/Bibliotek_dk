@@ -100,6 +100,7 @@ class BiblioClient:
             obj = self._material(cls, data)
             obj.createdDate = _date(data["timestamp"])
             obj.pickupLibrary = "biblo.dk"
+            obj.queueNumber = data.get("queue_position")
             if is_ready:
                 obj.pickupDate = _date(data["offer_expires_at"])
                 obj.reservationNumber = data["offer_id"]

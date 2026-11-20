@@ -113,6 +113,7 @@ def test_reservations_map_available_offers_and_cache_metadata():
         "material_type": "audiobook",
         "timestamp": "2026-11-17T09:00:00Z",
         "loan_date": "2026-11-25T09:00:00Z",
+        "queue_position": 1,
     }
     offered = {
         **item,
@@ -137,7 +138,7 @@ def test_reservations_map_available_offers_and_cache_metadata():
     waiting, ready = lib._biblio.reservations()
     assert len(waiting) == len(ready) == 1
     assert waiting[0].title == ready[0].title == "An audiobook"
-    assert waiting[0].queueNumber is None  # Not supplied by the new API.
+    assert waiting[0].queueNumber == 1
     assert ready[0].pickupDate == dt.datetime(2026, 11, 20, 9)
     assert ready[0].pickupLibrary == "biblo.dk"
     assert lib._get.call_count == 2
@@ -203,8 +204,77 @@ def test_website_flag_selects_provider_without_new_account_settings(enabled):
 def test_disabled_digital_option_clears_new_provider_state_without_api_call():
     lib = library()
     lib.use_eReolen = False
+    lib.user.otherDigitalLoans = 2
     lib._get.return_value = response([])
     lib._loans["ereolen"] = [Mock()]
     lib.fetchLoans()
     assert lib.user.loans == []
+    assert lib.user.otherDigitalLoans == 0
     assert lib._get.call_count == 1  # Only the physical API.
+
+
+def test_optional_queue_positions_sort_and_reach_sensor():
+    from custom_components.bibliotek_dk.sensor import ReservationSensor
+
+    lib = library()
+    base = {**loan(), "timestamp": "2026-11-17", "loan_date": "2026-12-01"}
+    items = [
+        {**base, "id": "behind", "queue_position": 9},
+        {**base, "id": "front", "queue_position": 1},
+        {**base, "id": "absent"},
+    ]
+    lib._get.side_effect = [
+        response({"reservations": items, "pagination": {}}),
+        response({"materials": []}),
+    ]
+    lib.user.reservations, lib.user.reservationsReady = lib._biblio.reservations()
+    lib.sortLists()
+    assert [r.id for r in lib.user.reservations] == ["front", "behind", "absent"]
+    sensor = ReservationSensor(lib.user, Mock(last_update_success=True))
+    assert [
+        r["queue_number"] for r in sensor.extra_state_attributes["reservations"]
+    ] == [1, 9, None]
+
+
+def test_other_material_types_are_preserved_counted_and_exposed():
+    from custom_components.bibliotek_dk.sensor import LibrarySensor
+
+    lib = library()
+    lib.libraryName = "Test Library"
+    items = [
+        {**loan(str(i)), "material_type": kind}
+        for i, kind in enumerate(
+            ["ebook", "audiobook", "podcast", "paper_book", "future_type"]
+        )
+    ]
+    lib._get.side_effect = [
+        response([]),
+        response({"loans": items, "pagination": {}}),
+        response({"loan_quotas": []}),
+    ]
+    lib.fetchLoans()
+    sensor = LibrarySensor(lib, Mock(last_update_success=True))
+    attrs = sensor.extra_state_attributes
+    assert (attrs["ebooks"], attrs["audiobooks"], attrs["other_digital_loans"]) == (
+        1,
+        1,
+        3,
+    )
+    assert sum(
+        attrs[k] for k in ("ebooks", "audiobooks", "other_digital_loans")
+    ) == len(lib._loans["ereolen"])
+    assert [item.type for item in lib._loans["ereolen"]] == [
+        "epub",
+        "audiobook",
+        "podcast",
+        "paper_book",
+        "future_type",
+    ]
+
+
+def test_failed_digital_refresh_keeps_other_material_count():
+    lib = library()
+    lib.user.otherDigitalLoans = 3
+    lib._get.return_value = response(status=503)
+    lib._fetchBiblioLoans()
+    assert lib.user.otherDigitalLoans == 3
