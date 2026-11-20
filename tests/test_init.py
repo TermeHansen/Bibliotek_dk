@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import Mock
 
 from custom_components.bibliotek_dk import (
     _make_renew_loans_handler,
@@ -69,6 +70,10 @@ class _FakeLibrary:
         self.calls = []
         self._result = result
         self.coordinator = _FakeCoordinator()
+        self.renewable_ids = [7, 8]
+
+    def getRenewableLoanIds(self):
+        return self.renewable_ids
 
     def renewLoans(self, loan_ids):
         self.calls.append(loan_ids)
@@ -146,6 +151,46 @@ async def test_renew_loans_service_raises_when_nothing_renewed():
     assert hass.config_entries.reloaded == []
 
 
+@pytest.mark.asyncio
+async def test_renew_all_fetches_current_eligibility_and_returns_partial_result():
+    library = _FakeLibrary(result={7: "renewed", 8: "deniedReserved"})
+    library.renewable_ids = ["7", "8"]
+    handler = _make_renew_loans_handler(_FakeHass(library), renew_all=True)
+
+    result = await handler(_FakeCall({CONF_CONFIG_ENTRY_ID: "entry1"}))
+
+    assert library.calls == [[7, 8]]
+    assert result == {"renewed": {7: "renewed", 8: "deniedReserved"}}
+    assert library.coordinator.refreshes == 1
+
+
+@pytest.mark.asyncio
+async def test_renew_all_with_no_eligible_loans_sends_no_renewal():
+    library = _FakeLibrary()
+    library.renewable_ids = []
+    handler = _make_renew_loans_handler(_FakeHass(library), renew_all=True)
+
+    assert await handler(_FakeCall({CONF_CONFIG_ENTRY_ID: "entry1"})) == {"renewed": {}}
+    assert library.calls == []
+    assert library.coordinator.refreshes == 0
+
+
+@pytest.mark.asyncio
+async def test_renew_all_does_not_use_stale_data_if_eligibility_fetch_fails():
+    from homeassistant.exceptions import HomeAssistantError
+
+    library = _FakeLibrary()
+
+    def fail():
+        raise ValueError("HTTP 503")
+
+    library.getRenewableLoanIds = fail
+    handler = _make_renew_loans_handler(_FakeHass(library), renew_all=True)
+    with pytest.raises(HomeAssistantError, match="no renewal was sent"):
+        await handler(_FakeCall({CONF_CONFIG_ENTRY_ID: "entry1"}))
+    assert library.calls == []
+
+
 class _FakeSetupEntry:
     def __init__(self):
         self.entry_id = "entry1"
@@ -195,6 +240,34 @@ async def test_setup_registers_service_with_response_support(monkeypatch):
     assert key in hass.services.registered
     # Without supports_response, response_variable is rejected before the handler.
     assert hass.services.registered[("_response", *key)] == "optional"
+    all_key = (DOMAIN, "renew_all_loans")
+    assert all_key in hass.services.registered
+    assert hass.services.registered[("_response", *all_key)] == "optional"
+
+
+@pytest.mark.asyncio
+async def test_renewal_services_removed_only_after_last_account_unloads():
+    from custom_components.bibliotek_dk import async_unload_entry
+
+    library = _FakeLibrary()
+    library.session = Mock()
+    hass = _FakeHass(library)
+    hass.data[DOMAIN]["entry2"] = library
+
+    async def unload(entry, platforms):
+        return True
+
+    hass.config_entries.async_unload_platforms = unload
+    first = _FakeSetupEntry()
+    await async_unload_entry(hass, first)
+    assert hass.services.removed == []
+    second = _FakeSetupEntry()
+    second.entry_id = "entry2"
+    await async_unload_entry(hass, second)
+    assert set(hass.services.removed) == {
+        (DOMAIN, "renew_loans"),
+        (DOMAIN, "renew_all_loans"),
+    }
 
 
 def test_normalize_loan_ids_rejects_non_integers():

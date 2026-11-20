@@ -6,6 +6,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
+from requests.exceptions import RequestException
 
 from .library_api import Library
 
@@ -20,6 +21,7 @@ from .const import (
     CONF_USER_ID,
     DOMAIN,
     SERVICE_RENEW_LOANS,
+    SERVICE_RENEW_ALL_LOANS,
 )
 
 PLATFORMS = [Platform.SENSOR]
@@ -43,20 +45,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # The service is global (one handler for all entries); register it once.
     # supports_response lets automations read the per-loan status back.
-    if not hass.services.has_service(DOMAIN, SERVICE_RENEW_LOANS):
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_RENEW_LOANS,
-            _make_renew_loans_handler(hass),
-            supports_response=SupportsResponse.OPTIONAL,
-        )
+    for service, renew_all in (
+        (SERVICE_RENEW_LOANS, False),
+        (SERVICE_RENEW_ALL_LOANS, True),
+    ):
+        if not hass.services.has_service(DOMAIN, service):
+            hass.services.async_register(
+                DOMAIN,
+                service,
+                _make_renew_loans_handler(hass, renew_all=renew_all),
+                supports_response=SupportsResponse.OPTIONAL,
+            )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 
 
-def _make_renew_loans_handler(hass: HomeAssistant):
+def _make_renew_loans_handler(hass: HomeAssistant, *, renew_all=False):
     """Build the ``renew_loans`` service handler.
 
     Renews the given physical loans and asks the coordinator for a refresh so
@@ -70,7 +76,20 @@ def _make_renew_loans_handler(hass: HomeAssistant):
             raise HomeAssistantError(
                 f"No Bibliotek configuration entry with id '{entry_id}'"
             )
-        loan_ids = _normalize_loan_ids(call.data.get(ATTR_LOAN_IDS))
+        if renew_all:
+            # Read eligibility directly from the physical API at click time;
+            # never select from a stale sensor cache or from digital loans.
+            try:
+                raw_ids = await hass.async_add_executor_job(library.getRenewableLoanIds)
+            except (RequestException, KeyError, TypeError, ValueError) as err:
+                raise HomeAssistantError(
+                    "Could not retrieve renewable physical loans; no renewal was sent"
+                ) from err
+            if not raw_ids:
+                return {"renewed": {}}
+            loan_ids = _normalize_loan_ids(raw_ids)
+        else:
+            loan_ids = _normalize_loan_ids(call.data.get(ATTR_LOAN_IDS))
 
         status = await hass.async_add_executor_job(library.renewLoans, loan_ids)
         if any(result == "renewed" for result in status.values()):
@@ -123,5 +142,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Drop the service once the last entry is gone.
         if not hass.data.get(DOMAIN):
             hass.services.async_remove(DOMAIN, SERVICE_RENEW_LOANS)
+            hass.services.async_remove(DOMAIN, SERVICE_RENEW_ALL_LOANS)
 
     return unload_ok

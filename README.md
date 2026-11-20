@@ -18,7 +18,7 @@ All the configuration is done in GUI.
 - **Municipality**, Home Assistant will try to determine this from the coordinates of your home zone
 - **CPR - number / loannumber**
 - **Pincode**
-- Show eReolen (e-books and audiobooks), boolean (default true)
+- Show Biblo / eReolen (e-books and audiobooks), boolean (default true)
 - Show loans, boolean (default true)
 - Show debts (fees), boolean (default true)
 - Show reservations, boolean (default true)
@@ -41,12 +41,58 @@ The integration creates these sensors:
 All sensors support the `show_*` options above; disabled groups are not created.
 All sensors for an account are grouped under a single device in Home Assistant.
 
+### Biblo
+
+Digital loans use DBC's Biblio LMS adapter when the library website enables
+it. Your existing login and digital-loans setting are reused. Libraries that
+have not switched continue to use the eReolen/Pubhub connection.
+
+The general sensor's `digital_loans_quota` attribute contains Biblio's quotas
+per organization. If the library shares one allowance between e-books and
+audiobooks, `ebooks_quota` and `audiobooks_quota` are `null` rather than two
+independent allowances. See [BIBLO.md](BIBLO.md) for verification and limitations.
+
+Quota usage is reported by the API, not inferred from the active loan list.
+The following attributes use the prefixes `ebooks`, `audiobooks` and `podcasts`:
+
+| Suffix | Meaning |
+|---|---|
+| `_quota_used` / `_quota` | Concurrent quota consumption / maximum |
+| `_period_quota_used` / `_period_quota` | Consumption / maximum for the configured period |
+| `_quota_period` | Period as `{days, months}`, or `null` when unspecified |
+| `_monthly_quota_used` / `_monthly_quota` | Period consumption / maximum, only when the period is exactly one month |
+
+`ebooks`, `audiobooks` and the new `podcasts` attribute count active loans.
+Existing `other_digital_loans` still includes podcasts and other types outside
+e-books/audiobooks for compatibility; do not add it to `podcasts`.
+The same quota suffixes with prefix `shared` describe a combined quota.
+Missing values and per-format values for shared/multiple-organization quotas
+are `null`; organizations are never summed. Raw `digital_loans_quota` remains
+available. Failed quota requests retain the last successful values.
+
+The **Biblo Status** card in `dashboard.yaml` displays concurrent quota usage
+and monthly usage with separate e-book, audiobook and podcast columns. A `?`
+means the value or period is not known. Quota-exempt loans can make active
+loan counts higher than the displayed quota usage.
+
+**Existing dashboards:** digital materials can now have `type: audiobook` or
+`type: podcast` (e-books still use `epub`). If your template maps types to
+icons, add these values and use `types.get(book.type, '📖')` instead of
+`types[book.type]`. An unknown type otherwise breaks the whole loan list.
+See the [copyable example](BIBLO.md#existing-dashboard-templates).
+
 ### Cards
 `loans_card.yaml` is a drop-in card: one row per loan, across every configured
 account, with the cover, title, author/type and "due in ...". It discovers the
 Bibliotek sensors itself (from their attributes), so there is nothing to edit and
 it keeps working when entities are renamed. Paste it into a dashboard (Add card →
 Manual) or use `dashboard.yaml` as a starting point.
+
+`dashboard.yaml` contains the complete masonry dashboard with Biblo status,
+fees, loans, overdue loans, reservations and pickups. It includes individual
+and bulk renewal controls and messages for empty lists or unavailable data.
+It requires `auto-entities` and `template-entity-row`; no personal entity IDs,
+custom theme or `browser_mod` are needed.
 
 `loans_card_decluttering.yaml` is the same card as a
 [decluttering-card](https://github.com/custom-cards/decluttering-card) template,
@@ -58,6 +104,37 @@ cover popup on tap additionally needs `browser_mod` (remove the `tap_action`
 block if you do not use it).
 
 ### Renewing loans
+
+For dashboard controls, paste `loans_card_renewal.yaml` into a Manual card.
+It discovers all configured accounts automatically. Tap a loan marked
+**Forny** to renew it, or **Forny alle** to renew the eligible physical loans
+for that account. Both actions ask for confirmation. Digital loans and
+physical loans the library marks as nonrenewable have no renewal action.
+The existing read-only/cover-popup cards remain available.
+
+Illustration with synthetic example data (not a screenshot of an installed
+Home Assistant card):
+
+![Renewal card preview with individual and per-account actions](docs/images/renewal-card-preview.jpg)
+
+`bibliotek_dk.renew_all_loans` needs only the `config_entry_id`. It reads a
+fresh eligibility list directly from the physical library API before
+requesting renewal, including overdue loans when the library permits them.
+If that lookup fails, no renewal is sent. An account with no eligible loans
+returns an empty `renewed` mapping without sending a renewal request.
+
+```yaml
+action: bibliotek_dk.renew_all_loans
+data:
+  config_entry_id: 0f1e2d3c4b5a69788796a5b4c3d2e1f0
+```
+
+Both renewal actions return per-loan statuses when called from a script or
+automation with a response variable. A library may reject a loan even if it
+was eligible a moment earlier (for example, someone just reserved it).
+Partial successes refresh the sensors and retain each loan's result in the
+response. If no requested loan is renewed, the action reports an error.
+
 Physical loans can be renewed from an automation or the Developer Tools with the
 `bibliotek_dk.renew_loans` service. It takes the `config_entry_id` and one or
 more `loan_ids` (the `renew_id` attribute on each item of the loans sensor) and

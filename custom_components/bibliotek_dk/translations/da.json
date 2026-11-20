@@ -19,7 +19,7 @@
           "pincode": "PIN kode",
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
-          "show_eloans": "Vis lån fra eReolen",
+          "show_eloans": "Vis lån fra Biblo / eReolen",
           "show_debts": "Vis gebyrer",
           "show_reservations": "Vis reservationer"
         }
@@ -32,7 +32,7 @@
         "data": {
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
-          "show_eloans": "Vis lån fra eReolen",
+          "show_eloans": "Vis lån fra Biblo / eReolen",
           "show_debts": "Vis gebyrer",
           "show_reservations": "Vis reservationer"
         }
@@ -40,6 +40,16 @@
     }
   },
   "services": {
+    "renew_all_loans": {
+      "name": "Forny alle lån, der kan fornyes",
+      "description": "Forny alle fysiske lån, der aktuelt kan fornyes, for én bibliotekskonto. Digitale lån medtages ikke; muligheden for fornyelse kontrolleres igen ved kaldet.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Den Bibliotek-konfigurationspost hvis fysiske lån skal fornyes."
+        }
+      }
+    },
     "renew_loans": {
       "name": "Forny lån",
       "description": "Forny et eller flere fysiske lån for en bibliotekskonto.",
