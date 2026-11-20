@@ -113,6 +113,8 @@ def _make_unlock_handler(hass: HomeAssistant):
         unlocked: list[str] = []
         already_unlocked: list[str] = []
         failed: list[str] = []
+        protected_entry_count = 0
+        verified_passphrase = False
 
         for entry in entries:
             is_pass_mode = entry.data.get(
@@ -123,10 +125,8 @@ def _make_unlock_handler(hass: HomeAssistant):
             if not is_pass_mode:
                 already_unlocked.append(entry.entry_id)
                 continue
-            if entry.entry_id in loaded and not target_entry_id:
-                already_unlocked.append(entry.entry_id)
-                continue
 
+            protected_entry_count += 1
             agency = str(entry.data.get(CONF_AGENCY, ""))
             try:
                 await hass.async_add_executor_job(
@@ -144,6 +144,7 @@ def _make_unlock_handler(hass: HomeAssistant):
                 failed.append(entry.entry_id)
                 continue
 
+            verified_passphrase = True
             passphrases[entry.entry_id] = passphrase
             if entry.entry_id in loaded:
                 already_unlocked.append(entry.entry_id)
@@ -151,7 +152,10 @@ def _make_unlock_handler(hass: HomeAssistant):
                 await hass.config_entries.async_reload(entry.entry_id)
                 unlocked.append(entry.entry_id)
 
-        if unlocked or already_unlocked or not failed:
+        if verified_passphrase:
+            if not target_entry_id or not hass.data.get(DATA_ESCROW_PASSPHRASE):
+                hass.data[DATA_ESCROW_PASSPHRASE] = passphrase
+        elif protected_entry_count == 0 and not target_entry_id:
             hass.data[DATA_ESCROW_PASSPHRASE] = passphrase
 
         return {

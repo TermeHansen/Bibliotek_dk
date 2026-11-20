@@ -18,6 +18,7 @@ from custom_components.bibliotek_dk import (
 )
 from custom_components.bibliotek_dk.const import (
     CONF_AGENCY,
+    CONF_CONFIG_ENTRY_ID,
     CONF_ENCRYPTION_MODE,
     CONF_ENCRYPTION_PASSPHRASE,
     CONF_EXPOSE_PERSONAL_INFO,
@@ -43,6 +44,8 @@ from custom_components.bibliotek_dk.crypto import (
     ENC_PREFIX_KEYFILE,
     ENC_PREFIX_PASSPHRASE,
     decrypt_with_key,
+    encrypt_with_key,
+    encrypt_with_passphrase,
     get_or_create_master_key,
 )
 from custom_components.bibliotek_dk.diagnostics import (
@@ -871,3 +874,215 @@ async def test_config_flow_uses_ram_escrow_passphrase_without_persisting_it(
     assert CONF_USE_ESCROW_PASSPHRASE not in info["data"]
     assert CONF_ENCRYPTION_PASSPHRASE not in info["data"]
     assert info["passphrase"] == phrase
+
+
+def _make_encrypted_entry(
+    hass: _FakeHass,
+    entry_id: str,
+    user_id: str,
+    *,
+    passphrase: str | None = None,
+) -> _FakeEntry:
+    """Create a v2 encrypted ConfigEntry in passphrase or keyfile mode."""
+    agency = "710100"
+    host = "https://test.bib.dk"
+    if passphrase:
+        data = {
+            CONF_MUNICIPALITY: "Test Kommune",
+            CONF_HOST: host,
+            CONF_AGENCY: agency,
+            CONF_USER_ID: encrypt_with_passphrase(
+                passphrase, user_id, field=CONF_USER_ID, agency=agency
+            ),
+            CONF_PINCODE: encrypt_with_passphrase(
+                passphrase, "4321", field=CONF_PINCODE, agency=agency
+            ),
+            CONF_ENCRYPTION_MODE: ENCRYPTION_MODE_PASSPHRASE,
+        }
+    else:
+        master = get_or_create_master_key(hass)
+        data = {
+            CONF_MUNICIPALITY: "Test Kommune",
+            CONF_HOST: host,
+            CONF_AGENCY: agency,
+            CONF_USER_ID: encrypt_with_key(
+                master, user_id, field=CONF_USER_ID, agency=agency
+            ),
+            CONF_PINCODE: encrypt_with_key(
+                master, "4321", field=CONF_PINCODE, agency=agency
+            ),
+            CONF_ENCRYPTION_MODE: ENCRYPTION_MODE_KEYFILE,
+        }
+    return _FakeEntry(data=data, entry_id=entry_id, unique_id=f"uid-{entry_id}")
+
+
+@pytest.mark.asyncio
+async def test_unlock_wrong_passphrase_does_not_overwrite_escrow_when_entries_loaded(
+    tmp_path: Path,
+):
+    from homeassistant.core import ServiceCall
+
+    hass = _FakeHass(tmp_path)
+    assert await async_setup(hass, {}) is True
+    unlock_handler = hass.services.registered[(DOMAIN, SERVICE_UNLOCK)]
+
+    phrase = _secret("family-escrow-loaded")
+    wrong_phrase = _secret("wrong-loaded")
+    e1 = _make_encrypted_entry(hass, "e1", "0102991234", passphrase=phrase)
+    e2 = _make_encrypted_entry(hass, "e2", "0203005678", passphrase=phrase)
+    hass.config_entries.entries.extend([e1, e2])
+    hass.data.setdefault(DOMAIN, {})["e1"] = object()
+    hass.data[DOMAIN]["e2"] = object()
+    hass.data[DATA_ESCROW_PASSPHRASE] = phrase
+    hass.data[DATA_PASSPHRASES] = {"e1": phrase, "e2": phrase}
+
+    res = await unlock_handler(ServiceCall({CONF_ENCRYPTION_PASSPHRASE: wrong_phrase}))
+    assert res == {
+        "escrow_active": True,
+        "unlocked": [],
+        "already_unlocked": [],
+        "failed": ["e1", "e2"],
+    }
+    assert hass.data[DATA_ESCROW_PASSPHRASE] == phrase
+    assert hass.data[DATA_PASSPHRASES]["e1"] == phrase
+    assert hass.data[DATA_PASSPHRASES]["e2"] == phrase
+
+    # Entry unlocked via Reauth UI (no escrow set) must not activate wrong escrow.
+    hass.data.pop(DATA_ESCROW_PASSPHRASE)
+    res_no_escrow = await unlock_handler(
+        ServiceCall({CONF_ENCRYPTION_PASSPHRASE: wrong_phrase})
+    )
+    assert res_no_escrow == {
+        "escrow_active": False,
+        "unlocked": [],
+        "already_unlocked": [],
+        "failed": ["e1", "e2"],
+    }
+    assert DATA_ESCROW_PASSPHRASE not in hass.data
+
+    # Correct passphrase verifies loaded entries and restores escrow.
+    res_ok = await unlock_handler(ServiceCall({CONF_ENCRYPTION_PASSPHRASE: phrase}))
+    assert res_ok == {
+        "escrow_active": True,
+        "unlocked": [],
+        "already_unlocked": ["e1", "e2"],
+        "failed": [],
+    }
+    assert hass.data[DATA_ESCROW_PASSPHRASE] == phrase
+
+
+@pytest.mark.asyncio
+async def test_unlock_wrong_passphrase_with_keyfile_and_locked_entry_does_not_set_escrow(
+    tmp_path: Path,
+):
+    from homeassistant.core import ServiceCall
+
+    hass = _FakeHass(tmp_path)
+    assert await async_setup(hass, {}) is True
+    unlock_handler = hass.services.registered[(DOMAIN, SERVICE_UNLOCK)]
+
+    phrase = _secret("valid-locked")
+    wrong_phrase = _secret("wrong-mixed")
+    k1 = _make_encrypted_entry(hass, "k1", "0102991234", passphrase=None)
+    p1 = _make_encrypted_entry(hass, "p1", "0203005678", passphrase=phrase)
+    hass.config_entries.entries.extend([k1, p1])
+
+    res = await unlock_handler(ServiceCall({CONF_ENCRYPTION_PASSPHRASE: wrong_phrase}))
+    assert res == {
+        "escrow_active": False,
+        "unlocked": [],
+        "already_unlocked": ["k1"],
+        "failed": ["p1"],
+    }
+    assert DATA_ESCROW_PASSPHRASE not in hass.data
+
+
+@pytest.mark.asyncio
+async def test_unlock_initializes_escrow_with_zero_or_keyfile_only_entries(
+    tmp_path: Path,
+):
+    from homeassistant.core import ServiceCall
+
+    hass = _FakeHass(tmp_path)
+    assert await async_setup(hass, {}) is True
+    unlock_handler = hass.services.registered[(DOMAIN, SERVICE_UNLOCK)]
+
+    phrase = _secret("init-empty")
+    res_empty = await unlock_handler(ServiceCall({CONF_ENCRYPTION_PASSPHRASE: phrase}))
+    assert res_empty == {
+        "escrow_active": True,
+        "unlocked": [],
+        "already_unlocked": [],
+        "failed": [],
+    }
+    assert hass.data[DATA_ESCROW_PASSPHRASE] == phrase
+
+    hass.data.pop(DATA_ESCROW_PASSPHRASE)
+    k1 = _make_encrypted_entry(hass, "k1", "0102991234", passphrase=None)
+    hass.config_entries.entries.append(k1)
+
+    phrase2 = _secret("init-keyfile-only")
+    res_keyfile = await unlock_handler(
+        ServiceCall({CONF_ENCRYPTION_PASSPHRASE: phrase2})
+    )
+    assert res_keyfile == {
+        "escrow_active": True,
+        "unlocked": [],
+        "already_unlocked": ["k1"],
+        "failed": [],
+    }
+    assert hass.data[DATA_ESCROW_PASSPHRASE] == phrase2
+
+    # Targeted unlock on a keyfile entry does not replace existing global escrow.
+    other_phrase = _secret("targeted-keyfile-ignored")
+    res_targeted = await unlock_handler(
+        ServiceCall(
+            {
+                CONF_ENCRYPTION_PASSPHRASE: other_phrase,
+                CONF_CONFIG_ENTRY_ID: "k1",
+            }
+        )
+    )
+    assert res_targeted == {
+        "escrow_active": True,
+        "unlocked": [],
+        "already_unlocked": ["k1"],
+        "failed": [],
+    }
+    assert hass.data[DATA_ESCROW_PASSPHRASE] == phrase2
+
+
+@pytest.mark.asyncio
+async def test_unlock_targeted_entry_does_not_overwrite_existing_global_escrow(
+    tmp_path: Path,
+):
+    from homeassistant.core import ServiceCall
+
+    hass = _FakeHass(tmp_path)
+    assert await async_setup(hass, {}) is True
+    unlock_handler = hass.services.registered[(DOMAIN, SERVICE_UNLOCK)]
+
+    family_phrase = _secret("family-global")
+    personal_phrase = _secret("personal-targeted")
+    p1 = _make_encrypted_entry(hass, "p1", "0102991234", passphrase=family_phrase)
+    p2 = _make_encrypted_entry(hass, "p2", "0203005678", passphrase=personal_phrase)
+    hass.config_entries.entries.extend([p1, p2])
+    hass.data[DATA_ESCROW_PASSPHRASE] = family_phrase
+
+    res = await unlock_handler(
+        ServiceCall(
+            {
+                CONF_ENCRYPTION_PASSPHRASE: personal_phrase,
+                CONF_CONFIG_ENTRY_ID: "p2",
+            }
+        )
+    )
+    assert res == {
+        "escrow_active": True,
+        "unlocked": ["p2"],
+        "already_unlocked": [],
+        "failed": [],
+    }
+    assert hass.config_entries.reloaded == ["p2"]
+    assert hass.data[DATA_PASSPHRASES]["p2"] == personal_phrase
+    assert hass.data[DATA_ESCROW_PASSPHRASE] == family_phrase
