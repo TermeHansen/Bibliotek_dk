@@ -163,13 +163,26 @@ CI (`.github/workflows/`): `validate.yaml` runs Home Assistant **hassfest** and
   unavailable — the wrong-PIN path and the token-expiry re-login were verified
   against two real accounts on 2026-10-24.
 - **Known open findings are tracked in `IMPROVEMENT_PLAN.md` Section 7** (from
-  the 2026-10-23 full review; 7.1/7.2/7.4/7.5/7.6 fixed in 0.8.1). Read it
-  before changing the fetchers: eReolen products are fetched one request per
-  item per poll with no cache (7.3), and the `_getDetails` fallback host is
-  suspect (7.9).
-- **`_getDetails` falls back to a staging host** (`temp.fbi-api.dbc.dk`) when
-  the scraped `data-fbi-global-base-url` is missing; treat that fallback as
-  suspect (plan 7.9).
+  the 2026-10-23 full review; 7.1/7.2/7.4/7.5/7.6 fixed in 0.8.1, 7.9 in
+  0.9.2). Read it before changing the fetchers: eReolen products are still
+  fetched one request per item per poll with no cache (7.3). Section 8 records
+  what the Biblo app API can and cannot replace.
+- **`_getDetails` reads the Biblo app API, not the library website** (0.9.2).
+  It calls `GET {URL_DDF_BASE}/v1/agencies/{agency}/records/{recordId}` with
+  `ddf_header` — client-hint headers and the Biblo app's `x-api-key`, and
+  deliberately **no** bearer token, because the endpoint is anonymous. The
+  response is flat; `_manifestation()` adapts it to the nested GraphQL shape
+  `models.libraryMaterial` expects, so the models and callers stay unchanged.
+  FBS reports a bare faust (`39134543`) and the API answers 400 for that, so
+  `_recordId()` expands it to `870970-basis:<faust>`; an id that already
+  contains `:` is left alone. This closed plan 7.9 (no staging-host fallback).
+- **`refreshLibraries` prefers the scraped page and falls back to the API.** The
+  login page's `var libraries` script is the only source that flags `gatewayf`
+  libraries and it carries municipality names ("København") that the config
+  flow and `municipalityFromCoor` depend on; `GET /v1/agencies` has neither
+  (agency names, no gatewayf field). `_librariesFromDdf()` is therefore a
+  fallback for when the page layout changes, not a replacement. Do not swap the
+  order without re-checking both of those properties.
 - **`renew_id` is exposed only on the loans sensor**, not the overdue sensor —
   overdue items are the same loans, so the id is available if a future renew UX
   needs it.

@@ -55,39 +55,23 @@ URL_FEES = f"{URL_FBS_BASE}/external/agencyid/patron/patronid/fees/v2"
 URL_PUBHUB_BASE = "https://pubhub-openplatform.dbc.dk/v1"
 URL_BRANCH_GRAPHQL = "https://bibliotek.dk/api/bibdk21/graphql"
 
+# The Biblo app's API (DDF/BFF). Its record endpoint replaces the scraped
+# GraphQL details lookup and needs no user session (plan 7.9). The app-type,
+# app-version and installation-id headers are client hints the gateway
+# validates before it looks at anything else; the API key is the Biblo app's
+# own, which is why these requests work without a patron login.
+URL_DDF_BASE = "https://api.detdigitalefolkebibliotek.dk"
+DDF_APP_TYPE = "mybiblo"
+DDF_APP_VERSION = "Android/1.3.1"
+DDF_API_KEY = "wnFOwN6DkmQazm_jiahemlIVgWuQ-fgtNSfBRNdun6w"
+# A stable, non-identifying installation id: the gateway only requires >= 10
+# characters, and the record endpoint does not tie anything to a device.
+DDF_INSTALLATION_ID = "bibliotek-dk-homeassistant"
+
 # HA service to renew one or more physical loans.
 SERVICE_RENEW_LOANS = "renew_loans"
 ATTR_LOAN_IDS = "loan_ids"
 
-
-details_query = """
-    query getManifestationViaMaterialByFaust($faust: String!) {
-  manifestation(faust: $faust) {
-    ...ManifestationBasicDetails
-  }
-}
-
-    fragment ManifestationBasicDetails on Manifestation {
-  pid
-  ownerWork {
-    workId
-  }
-  titles {
-    full
-  }
-  creators {
-    display
-  }
-  cover {
-    thumbnail
-  }
-  materialTypes {
-    materialTypeSpecific {
-      display
-    }
-  }
-}
-"""
 
 branch_query = """
 query LibraryFragmentsSearch(

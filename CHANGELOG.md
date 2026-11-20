@@ -1,5 +1,28 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.9.2
+
+**Date**: `2026-11-21`
+
+### Changes
+
+* Material details (title, creators, cover, type, work URL) now come from the
+  Biblo app's record endpoint (`api.detdigitalefolkebibliotek.dk`) as JSON
+  instead of a GraphQL call against a host scraped out of the library website.
+  This removes the `temp.fbi-api.dbc.dk` staging-host fallback and closes plan
+  item 7.9. The endpoint needs no patron login, so it cannot be affected by
+  session or token problems, and it returns richer data than the old lookup
+  (publisher, page count, edition, series, shelfmark).
+* A bare faust is expanded to its `870970-basis:` record id, which is the form
+  the record endpoint requires.
+* The config flow falls back to the Biblo API's JSON agency list when the login
+  page's `var libraries` script cannot be parsed, so a redesign of that page no
+  longer leaves the library dropdown empty. The scraped page stays the primary
+  source: it is the only one that flags `gatewayf` libraries, and it uses the
+  municipality names the flow and the reverse-geocode default rely on.
+* No change to which libraries can be configured, and no new Python
+  dependencies.
+
 ## Version 0.9.1
 
 **Date**: `2026-11-20`

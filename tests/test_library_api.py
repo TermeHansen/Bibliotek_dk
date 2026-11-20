@@ -197,9 +197,23 @@ def _ready_library(session):
     return lib
 
 
+def _record(**overrides):
+    """A record payload as the Biblo API returns it (flat fields)."""
+    payload = {
+        "recordId": "870970-basis:123",
+        "workId": "work-of:870970-basis:123",
+        "title": "Some Title",
+        "creators": ["A. Author"],
+        "coverUrl": "https://example.invalid/cover.jpg",
+        "materialType": {"display": "bog", "category": "BOOKS"},
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_get_details_returns_empty_dict_on_non_200():
     # Regression: a failed details fetch used to raise KeyError on the cache.
-    session = _FakeSession(post=_FakeResponse(status_code=500))
+    session = _FakeSession(get=_FakeResponse(status_code=500))
     lib = _ready_library(session)
     assert lib._getDetails("faust-1") == {}
     # The failure must not be cached as a hit.
@@ -207,11 +221,90 @@ def test_get_details_returns_empty_dict_on_non_200():
 
 
 def test_get_details_caches_successful_lookup():
-    payload = {"data": {"manifestation": {"pid": "p"}}}
-    session = _FakeSession(post=_FakeResponse(payload=payload))
+    payload = {"data": _record()}
+    session = _FakeSession(get=_FakeResponse(payload=payload))
     lib = _ready_library(session)
-    assert lib._getDetails("faust-1") == payload["data"]
-    assert lib._details["faust-1"] == payload["data"]
+    manifestation = lib._getDetails("faust-1")["manifestation"]
+    assert manifestation["titles"]["full"] == ["Some Title"]
+    assert lib._details["faust-1"]["manifestation"] == manifestation
+
+
+def test_get_details_maps_record_onto_manifestation():
+    # The models read the nested GraphQL shape, so the adapter must produce it.
+    session = _FakeSession(get=_FakeResponse(payload={"data": _record()}))
+    lib = _ready_library(session)
+    loan = libraryLoan(lib._getDetails("faust-1"))
+    assert loan.title == "Some Title"
+    assert loan.creators == "A. Author"
+    assert loan.coverUrl == "https://example.invalid/cover.jpg"
+    assert loan.type == "bog"
+    assert loan.url == "https://bibliotek.dk/work/work-of:870970-basis:123"
+
+
+def test_get_details_tolerates_missing_optional_fields():
+    # A sparse record must not raise; the loan keeps its dates and loses only
+    # the fields that are absent.
+    sparse = {"recordId": "r", "title": "Only A Title"}
+    session = _FakeSession(get=_FakeResponse(payload={"data": sparse}))
+    lib = _ready_library(session)
+    loan = libraryLoan(lib._getDetails("faust-1"))
+    assert loan.title == "Only A Title"
+    assert loan.creators is None
+    assert loan.coverUrl is None
+
+
+def test_get_details_unexpected_payload_is_not_cached():
+    # A 200 without the `data` envelope is a failed lookup, not a hit.
+    session = _FakeSession(get=_FakeResponse(payload={"unexpected": True}))
+    lib = _ready_library(session)
+    assert lib._getDetails("faust-1") == {}
+    assert "faust-1" not in lib._details
+
+
+def test_get_details_sends_client_hints_and_no_bearer_token():
+    # The record endpoint is anonymous: sending a patron token would couple a
+    # public lookup to the session and leak it to a third-party host.
+    session = _FakeSession(get=_FakeResponse(payload={"data": _record()}))
+    lib = _ready_library(session)
+    lib._getDetails("faust-1")
+    headers = session.last_kwargs["headers"]
+    assert headers["x-app-type"] == "mybiblo"
+    assert "x-api-key" in headers
+    assert "Authorization" not in headers
+
+
+def test_get_details_expands_a_bare_faust_to_a_record_id():
+    # Regression: FBS reports a bare faust ("39134543") and the API answers 400
+    # for it, which silently blanked every title and cover.
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        return _FakeResponse(payload={"data": _record()})
+
+    session = _FakeSession(get=None)
+    session.get = fake_get
+    lib = _ready_library(session)
+
+    lib._getDetails("39134543")
+
+    assert seen["url"].endswith("/records/870970-basis:39134543")
+
+
+def test_get_details_leaves_an_already_qualified_id_alone():
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        return _FakeResponse(payload={"data": _record()})
+
+    session = _FakeSession(get=None)
+    session.get = fake_get
+    lib = _ready_library(session)
+
+    lib._getDetails("710100-katalog:52616417")
+
+    assert seen["url"].endswith("/records/710100-katalog:52616417")
 
 
 def test_fetch_debts_keeps_fee_without_materials():
@@ -396,6 +489,12 @@ def test_fetch_loans_keeps_physical_when_ereolen_fails():
     responses = [_FakeResponse(payload=loans), _FakeResponse(status_code=503)]
 
     def fake_get(url, **kwargs):
+        # Dispatch on the URL rather than call order: the details lookup and
+        # the eReolen call are both GETs, so a queue would be order-fragile.
+        if "/records/" in url:
+            return _FakeResponse(payload={"data": _record()})
+        if "pubhub" in url:
+            return responses.pop()
         return responses.pop(0)
 
     session = _FakeSession(post=_FakeResponse(status_code=500), get=None)

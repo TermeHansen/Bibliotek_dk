@@ -31,10 +31,15 @@ from .const import (
     CONF_SHOW_RESERVATIONS,
     CONF_UPDATE_INTERVAL,
     CONF_USER_ID,
+    DDF_API_KEY,
+    DDF_APP_TYPE,
+    DDF_APP_VERSION,
+    DDF_INSTALLATION_ID,
     DOMAIN,
     HEADERS,
     MUNICIPALITY_LOOKUP_URL,
     UPDATE_INTERVAL,
+    URL_DDF_BASE,
     URL_FALLBACK,
     URL_LOGIN_PAGE,
 )
@@ -43,6 +48,57 @@ _LOGGER = logging.getLogger(__name__)
 
 # Timeout (seconds) applied to the library-list and municipality lookups.
 REQUEST_TIMEOUT = 10
+
+
+def _ddfSession():
+    """A session carrying the Biblo app's client-hint headers."""
+    session = requests.Session()
+    session.headers = {
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip, deflate",
+        "x-app": DDF_APP_VERSION,
+        "x-app-type": DDF_APP_TYPE,
+        "x-installation-id": DDF_INSTALLATION_ID,
+        "x-api-key": DDF_API_KEY,
+    }
+    return session
+
+
+def _librariesFromDdf():
+    """Fetch the agency list as JSON from the Biblo app API.
+
+    Returns the same ``{name: {agency, host}}`` mapping as the scraped page, or
+    ``None`` when the API is unreachable or answers something unexpected, so the
+    caller can fall back to the page.
+
+    The API lists agencies without a gatewayf flag, and its names are the
+    agencies' own ("Københavns Biblioteker") rather than the municipality names
+    the config flow and the reverse-geocode default use ("København"), so this
+    is a fallback source, not a drop-in replacement.
+    """
+    try:
+        r = _ddfSession().get(f"{URL_DDF_BASE}/v1/agencies", timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        agencies = r.json()["data"]
+    except (
+        requests.exceptions.RequestException,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as err:
+        _LOGGER.warning(f"Could not load libraries from the Biblo API: {err}")
+        return None
+
+    libraries = {}
+    for agency in agencies:
+        name, domain = agency.get("name"), agency.get("urlDomain")
+        if not name or not domain:
+            continue
+        libraries[name] = {
+            CONF_AGENCY: agency["id"],
+            CONF_HOST: f"https://{domain}",
+        }
+    return libraries or None
 
 
 def refreshLibraries() -> tuple[dict, dict]:
@@ -81,7 +137,12 @@ def refreshLibraries() -> tuple[dict, dict]:
         _LOGGER.error(
             f"Error loading the libraries from the fallback url. Error: {err}"
         )
-        return {}, {}
+        # The page layout changed or is unavailable: the JSON agency list is
+        # the more stable source, so try it before giving up.
+        libraries = _librariesFromDdf()
+        if libraries is None:
+            return {}, {}
+        return libraries, {}
 
     libraries, excLibraries = {}, {}
     if "folk" in librariesJSON.keys():

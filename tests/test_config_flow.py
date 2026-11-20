@@ -35,6 +35,9 @@ class FakeResponse:
         self.status_code = status_code
         self._raise_exc = raise_exc
 
+    def json(self):
+        return json.loads(self.text)
+
     def raise_for_status(self):
         if self._raise_exc is not None:
             raise self._raise_exc
@@ -219,8 +222,100 @@ def test_refresh_libraries_missing_script_returns_empty(monkeypatch):
     monkeypatch.setattr(
         config_flow.requests, "Session", lambda: FakeSession(response=response)
     )
+    # The JSON agency list is also unavailable, so there is nothing to return.
+    monkeypatch.setattr(config_flow, "_librariesFromDdf", lambda: None)
 
     assert config_flow.refreshLibraries() == ({}, {})
+
+
+# --- the JSON agency list fallback ------------------------------------------
+
+
+def _agency_payload():
+    return {
+        "data": [
+            {
+                "id": "710100",
+                "name": "Københavns Biblioteker",
+                "address": {"street": "Krystalgade 15"},
+                "urlDomain": "bibliotek.kk.dk",
+            },
+            {
+                "id": "763000",
+                "name": "Vejle Bibliotekerne",
+                "address": {"street": "Willy Sørensens Plads 1"},
+                "urlDomain": "vejlebib.dk",
+            },
+        ]
+    }
+
+
+def test_libraries_from_ddf_maps_name_agency_and_host(monkeypatch):
+    response = FakeResponse(text=json.dumps(_agency_payload()))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    libraries = config_flow._librariesFromDdf()
+
+    assert libraries["Københavns Biblioteker"] == {
+        CONF_AGENCY: "710100",
+        CONF_HOST: "https://bibliotek.kk.dk",
+    }
+    assert libraries["Vejle Bibliotekerne"][CONF_HOST] == "https://vejlebib.dk"
+
+
+def test_libraries_from_ddf_skips_entries_without_a_domain(monkeypatch):
+    payload = {"data": [{"id": "710100", "name": "No Domain"}, {"name": "No Id"}]}
+    response = FakeResponse(text=json.dumps(payload))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    # Nothing usable survived, so the caller must fall back rather than show an
+    # empty dropdown.
+    assert config_flow._librariesFromDdf() is None
+
+
+def test_libraries_from_ddf_returns_none_on_http_error(monkeypatch):
+    response = FakeResponse(
+        status_code=401, raise_exc=requests.exceptions.HTTPError("unauthorized")
+    )
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    assert config_flow._librariesFromDdf() is None
+
+
+def test_libraries_from_ddf_returns_none_on_unexpected_payload(monkeypatch):
+    response = FakeResponse(text=json.dumps({"unexpected": True}))
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+
+    assert config_flow._librariesFromDdf() is None
+
+
+def test_refresh_libraries_falls_back_to_ddf_when_page_layout_changes(monkeypatch):
+    # A page whose `var libraries` script is gone used to leave the dropdown
+    # empty; the JSON agency list should fill it instead.
+    response = FakeResponse(text="<html>redesigned</html>")
+    monkeypatch.setattr(
+        config_flow.requests, "Session", lambda: FakeSession(response=response)
+    )
+    monkeypatch.setattr(
+        config_flow,
+        "_librariesFromDdf",
+        lambda: {"Københavns Biblioteker": {CONF_AGENCY: "710100", CONF_HOST: "h"}},
+    )
+
+    libraries, exc = config_flow.refreshLibraries()
+
+    assert libraries == {
+        "Københavns Biblioteker": {CONF_AGENCY: "710100", CONF_HOST: "h"}
+    }
+    assert exc == {}
 
 
 # --- municipalityFromCoor ---------------------------------------------------

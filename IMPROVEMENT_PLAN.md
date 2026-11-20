@@ -270,12 +270,17 @@ directly. Not a bug — adopting it deletes ~30 lines and one custom code path.
   oldest first, then title. Missing dates sort last and missing titles use an
   empty string, matching the existing loan sort. Covered by regression tests.
 
-### 7.9 `_getDetails` staging-host fallback — NOTE
+### 7.9 `_getDetails` staging-host fallback — DONE (0.9.2)
 
-When the scraped `data-fbi-global-base-url` is missing, the fallback is
+When the scraped `data-fbi-global-base-url` was missing, the fallback was
 `https://temp.fbi-api.dbc.dk/...` — a staging host that may vanish; every poll
-then emits one warning per material. Consider failing soft (return `{}`
-without the request) or logging once per host instead of per material.
+then emitted one warning per material.
+
+Fixed by removing the scraped host entirely: details now come from the Biblo
+app's record endpoint, `GET /v1/agencies/{agencyId}/records/{recordId}`, which
+is JSON, needs no patron login, and carries no staging fallback. The scraped
+`data-*-url` attributes are still read, but only for the digital-provider
+rollout flags.
 
 ---
 
@@ -299,3 +304,73 @@ Remaining work, in the order it should land (proposed 2026-10-23):
 4. Post-detach: revisit `codeowners` in `manifest.json` and `CREDITS` in
    `const.py` (keeping both is fine as attribution — make it a conscious
    choice).
+
+---
+
+## Section 8 — The Biblo app API (DDF), evaluated 2026-11-21
+
+`https://api.detdigitalefolkebibliotek.dk` is the backend of the Biblo app. It
+is worth knowing about because it is the only *documented* JSON surface for
+this data (spec at `/_openapi.json`), and it removes HTML scraping. Findings
+below were measured against a real account, not inferred.
+
+### 8.1 What it is
+
+- Serves three apps through a required `x-app-type` header:
+  `mybiblo` (physical/FBS), `biblo` (digital/WDB), `biblogo` (children).
+- The partition is **per request, not per session**: one login serves
+  `mybiblo` loans, `biblo` quotas and the ungated endpoints by switching the
+  header. It is a single session.
+- Every request also needs `x-app`, `x-installation-id` and `x-api-key`. The
+  key is enforced (`401 "Missing API key"`); the first two are only
+  format-checked (>= 10 chars).
+
+### 8.2 Auth: the reason it cannot replace the login
+
+`POST /v1/auth/login` takes `{code, redirect_uri}` with HTTP Basic
+`client_id:client_secret` — it consumes an OAuth code, not a card number and
+pincode. To obtain that code you must still drive login.bib.dk's HTML form
+(`login.bib.dk/login` alone answers 403 "Login cannot be called directly", and
+the form action carries a per-session CSRF hash).
+
+So the login scrape is unavoidable either way. The API removes scraping from
+*everything after* login, which is where three of the four scrape sites live.
+
+Our existing FBS user token is **not** accepted (`401 "Invalid bearer token"`);
+the API wants its own BFF JWT. The `client_id`/`client_secret`/`x-api-key` are
+the Biblo APK's hardcoded values. Precedent for embedding a first-party app key
+exists in `affalddk` (`GH_API`, base64 renoweb key), but the risk is silent
+breakage when DBC rotates them.
+
+### 8.3 Adopted in 0.9.2
+
+- **Record details** — `GET /v1/agencies/{agencyId}/records/{recordId}`.
+  Anonymous (no bearer). Replaces the GraphQL `_getDetails` and closes 7.9.
+  Returns title, creators[], coverUrl, isbn, publisher[], numberOfPages,
+  genre[], edition, originalTitle, series, shelfmark{}, audience, extent,
+  notes[] — a superset of the old lookup. Requires a full record id; a bare
+  faust must be expanded to `870970-basis:<faust>` or the API answers 400.
+- **Agency list as fallback** — `GET /v1/agencies`. 101 agencies as JSON with
+  id, name, address, phone, email, urlDomain. Used only when the login page's
+  `var libraries` script cannot be parsed.
+
+### 8.4 Rejected, with reasons
+
+- **Wholesale switch of the library list.** The scraped page is the only source
+  that flags `gatewayf` libraries (5 of them), and it uses municipality names
+  ("København") that the config flow and `municipalityFromCoor` rely on. The API
+  has neither: no gatewayf field anywhere in the spec, and agency names instead
+  ("Københavns Biblioteker"). Switching would silently add 5 unsupported
+  libraries and break the default dropdown selection.
+- **Loans/reservations through the API.** Needs the app credentials for a
+  patron session, and `/account` has no `address` (the main sensor's `address`
+  attribute is used as a `rejectattr` discriminator in `dashboard.yaml`). Not
+  worth the credential risk while FBS works.
+
+### 8.5 Open questions
+
+- The 5 gatewayf libraries now serve a working borchk card+pincode form, so the
+  exclusion may be stale. Worth testing one real account before enabling them.
+- Three agencies have a different `urlDomain` than the host the current regex
+  extracts (Roskilde, Lejre, Mariagerfjord); both hosts were verified to work,
+  so this is not urgent.
