@@ -20,30 +20,16 @@ from custom_components.bibliotek_dk.library_api import (
 )
 
 
-def _manifestation(pid="870970-basis:123", work_id="work-of:870970-basis:123"):
-    """Build a physical-manifestation details payload."""
-    return {
-        "manifestation": {
-            "pid": pid,
-            "ownerWork": {"workId": work_id},
-            "titles": {"full": ["Some Title"]},
-            "creators": [{"display": "A. Author"}],
-            "cover": {"thumbnail": "https://example.invalid/cover.jpg"},
-            "materialTypes": [{"materialTypeSpecific": {"display": "bog"}}],
-        }
-    }
-
-
 def test_sort_lists_orders_loans_by_expire_then_title():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
-    later = libraryLoan(_manifestation())
+    later = libraryLoan(_record())
     later.title = "B"
     later.expireDate = dt.datetime(2026, 2, 1)
-    sooner = libraryLoan(_manifestation())
+    sooner = libraryLoan(_record())
     sooner.title = "A"
     sooner.expireDate = dt.datetime(2026, 1, 1)
     # A loan with no expireDate must sort last.
-    undated = libraryLoan(_manifestation())
+    undated = libraryLoan(_record())
     undated.title = "C"
     undated.expireDate = None
 
@@ -57,11 +43,11 @@ def test_sort_lists_orders_loans_by_expire_then_title():
 
 def test_sort_lists_orders_reservations_by_queue_number():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
-    q3 = libraryReservation(_manifestation())
+    q3 = libraryReservation(_record())
     q3.title = "third"
     q3.queueNumber = 3
     q3.createdDate = dt.datetime(2026, 1, 1)
-    q1 = libraryReservation(_manifestation())
+    q1 = libraryReservation(_record())
     q1.title = "first"
     q1.queueNumber = 1
     q1.createdDate = dt.datetime(2026, 1, 2)
@@ -76,10 +62,10 @@ def test_sort_lists_orders_reservations_by_queue_number():
 
 def test_sort_lists_orders_ready_reservations_by_pickup_date():
     lib = Library("1234", "0000", "https://example.invalid", "710100")
-    later = libraryReservationReady(_manifestation())
+    later = libraryReservationReady(_record())
     later.title = "later"
     later.pickupDate = dt.datetime(2026, 3, 1)
-    sooner = libraryReservationReady(_manifestation())
+    sooner = libraryReservationReady(_record())
     sooner.title = "sooner"
     sooner.pickupDate = dt.datetime(2026, 2, 1)
 
@@ -110,7 +96,7 @@ def test_sort_overdue_and_debts_by_date_then_title_with_missing_values(
     ]
     items = []
     for title, date in specs:
-        item = model(_manifestation())
+        item = model(_record())
         item.title = title
         setattr(item, date_attr, date)
         items.append(item)
@@ -191,15 +177,31 @@ def _ready_library(session):
     """A Library with a valid token and a stubbed session (no login calls)."""
     lib = Library("1234", "0000", "https://example.invalid", "710100")
     lib.session = session
-    lib._urls = {"data-fbi-global-base-url": "https://details.invalid/graphql"}
+    # Pre-seed the discovered config so update() does not hit the network, and
+    # pin the adapter flag off so no BiblioClient is built.
+    lib._urls = {"data-use-biblio-adapter-config": "0"}
     lib._transport._user_token = "x" * 8
     lib._transport._user_token_exp = dt.datetime.now() + dt.timedelta(hours=1)
     return lib
 
 
+def _record(**overrides):
+    """A record payload as the Biblo API returns it (flat fields)."""
+    payload = {
+        "recordId": "870970-basis:123",
+        "workId": "work-of:870970-basis:123",
+        "title": "Some Title",
+        "creators": ["A. Author"],
+        "coverUrl": "https://example.invalid/cover.jpg",
+        "materialType": {"display": "bog", "category": "BOOKS"},
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_get_details_returns_empty_dict_on_non_200():
     # Regression: a failed details fetch used to raise KeyError on the cache.
-    session = _FakeSession(post=_FakeResponse(status_code=500))
+    session = _FakeSession(get=_FakeResponse(status_code=500))
     lib = _ready_library(session)
     assert lib._getDetails("faust-1") == {}
     # The failure must not be cached as a hit.
@@ -207,11 +209,102 @@ def test_get_details_returns_empty_dict_on_non_200():
 
 
 def test_get_details_caches_successful_lookup():
-    payload = {"data": {"manifestation": {"pid": "p"}}}
-    session = _FakeSession(post=_FakeResponse(payload=payload))
+    payload = {"data": _record()}
+    session = _FakeSession(get=_FakeResponse(payload=payload))
     lib = _ready_library(session)
-    assert lib._getDetails("faust-1") == payload["data"]
-    assert lib._details["faust-1"] == payload["data"]
+    record = lib._getDetails("faust-1")
+    assert record["title"] == "Some Title"
+    assert lib._details["faust-1"] == record
+
+
+def test_get_details_maps_record_onto_material():
+    session = _FakeSession(get=_FakeResponse(payload={"data": _record()}))
+    lib = _ready_library(session)
+    loan = libraryLoan(lib._getDetails("faust-1"))
+    assert loan.title == "Some Title"
+    assert loan.creators == "A. Author"
+    assert loan.coverUrl == "https://example.invalid/cover.jpg"
+    assert loan.type == "bog"
+    assert loan.url == "https://bibliotek.dk/work/work-of:870970-basis:123"
+
+
+def test_get_details_tolerates_missing_optional_fields():
+    # A sparse record must not raise; the loan keeps its dates and loses only
+    # the fields that are absent.
+    sparse = {"recordId": "r", "title": "Only A Title"}
+    session = _FakeSession(get=_FakeResponse(payload={"data": sparse}))
+    lib = _ready_library(session)
+    loan = libraryLoan(lib._getDetails("faust-1"))
+    assert loan.title == "Only A Title"
+    assert loan.creators is None
+    assert loan.coverUrl is None
+
+
+def test_get_details_unexpected_payload_is_not_cached():
+    # A 200 without the `data` envelope is a failed lookup, not a hit.
+    session = _FakeSession(get=_FakeResponse(payload={"unexpected": True}))
+    lib = _ready_library(session)
+    assert lib._getDetails("faust-1") == {}
+    assert "faust-1" not in lib._details
+
+
+def test_get_details_null_data_is_a_failed_lookup():
+    # Regression: a 200 carrying {"data": null} used to be cached as a hit, so
+    # the caller got None instead of {} and every later lookup for that id
+    # returned it too — blanking the item's details for the process lifetime.
+    session = _FakeSession(get=_FakeResponse(payload={"data": None}))
+    lib = _ready_library(session)
+
+    assert lib._getDetails("faust-1") == {}
+    assert "faust-1" not in lib._details
+    # The caller keeps the loan, which simply has no material details.
+    assert libraryLoan(lib._getDetails("faust-1")).title is None
+
+
+def test_get_details_sends_client_hints_and_no_bearer_token():
+    # The record endpoint is anonymous: sending a patron token would couple a
+    # public lookup to the session and leak it to a third-party host.
+    session = _FakeSession(get=_FakeResponse(payload={"data": _record()}))
+    lib = _ready_library(session)
+    lib._getDetails("faust-1")
+    headers = session.last_kwargs["headers"]
+    assert headers["x-app-type"] == "mybiblo"
+    assert "x-api-key" in headers
+    assert "Authorization" not in headers
+
+
+def test_get_details_expands_a_bare_faust_to_a_record_id():
+    # Regression: FBS reports a bare faust ("39134543") and the API answers 400
+    # for it, which silently blanked every title and cover.
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        return _FakeResponse(payload={"data": _record()})
+
+    session = _FakeSession(get=None)
+    session.get = fake_get
+    lib = _ready_library(session)
+
+    lib._getDetails("39134543")
+
+    assert seen["url"].endswith("/records/870970-basis:39134543")
+
+
+def test_get_details_leaves_an_already_qualified_id_alone():
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        return _FakeResponse(payload={"data": _record()})
+
+    session = _FakeSession(get=None)
+    session.get = fake_get
+    lib = _ready_library(session)
+
+    lib._getDetails("710100-katalog:52616417")
+
+    assert seen["url"].endswith("/records/710100-katalog:52616417")
 
 
 def test_fetch_debts_keeps_fee_without_materials():
@@ -336,10 +429,10 @@ def test_sort_lists_handles_missing_titles():
     # shared sort date must not mix None with str (TypeError aborts the refresh).
     lib = Library("1234", "0000", "https://example.invalid", "710100")
     due = dt.datetime(2026, 1, 1)
-    titled = libraryLoan(_manifestation())
+    titled = libraryLoan(_record())
     titled.title = "A"
     titled.expireDate = due
-    untitled = libraryLoan(_manifestation())
+    untitled = libraryLoan(_record())
     untitled.title = None
     untitled.expireDate = due
 
@@ -357,7 +450,7 @@ def test_fetch_loans_keeps_previous_state_on_api_error():
     # the list must not be replaced with empty data.
     lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
     lib.use_eReolen = False
-    existing = libraryLoan(_manifestation())
+    existing = libraryLoan(_record())
     existing.title = "Existing"
     lib._loans["physical"] = [existing]
 
@@ -369,7 +462,7 @@ def test_fetch_loans_keeps_previous_state_on_api_error():
 def test_fetch_reservations_keeps_previous_state_on_api_error():
     lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
     lib.use_eReolen = False
-    existing = libraryReservation(_manifestation())
+    existing = libraryReservation(_record())
     existing.title = "Existing"
     lib._reservations["physical"] = [existing]
 
@@ -396,6 +489,12 @@ def test_fetch_loans_keeps_physical_when_ereolen_fails():
     responses = [_FakeResponse(payload=loans), _FakeResponse(status_code=503)]
 
     def fake_get(url, **kwargs):
+        # Dispatch on the URL rather than call order: the details lookup and
+        # the eReolen call are both GETs, so a queue would be order-fragile.
+        if "/records/" in url:
+            return _FakeResponse(payload={"data": _record()})
+        if "pubhub" in url:
+            return responses.pop()
         return responses.pop(0)
 
     session = _FakeSession(post=_FakeResponse(status_code=500), get=None)
@@ -455,7 +554,7 @@ def test_fetch_loans_keeps_ereolen_when_physical_fails():
 
 def test_fetch_debts_keeps_previous_state_on_api_error():
     lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
-    existing = libraryDebt(_manifestation())
+    existing = libraryDebt(_record())
     existing.feeAmount = "10.00"
     lib.user.debts = [existing]
     lib.user.debtsAmount = 10.0

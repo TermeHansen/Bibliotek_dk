@@ -1,6 +1,6 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
-## Version 0.8.3
+## Version 0.9.4
 
 **Date**: `2026-11-20`
 
@@ -9,6 +9,106 @@
 * Use Home Assistant's `CoordinatorEntity` for sensor availability, manual
   refresh and update-listener lifecycle (IMPROVEMENT_PLAN.md section 7.7).
   Sensor IDs, attributes, configuration and polling interval are unchanged.
+
+## Version 0.9.3
+
+**Date**: `2026-11-21`
+
+### Changes
+
+* The library list now comes from the Biblo app's JSON agency list instead of
+  scraping the login page's `var libraries` script, so it no longer breaks when
+  that page is redesigned. The scrape is gone entirely; the API is the only
+  source, and a failed lookup reports `cannot_connect` instead of an empty
+  dropdown.
+* The five libraries the login page flagged as gatewayf (Assens, Langeland,
+  Nordfyns, Odense, Svendborg) are now selectable like every other library. They
+  serve the same login form, so the exclusion is dropped rather than carried
+  over to the API list. Users in those municipalities are asked to test before
+  the release.
+* The Faroese (`Býarbókasavnið`) and Greenlandic (`Kalaallit Nunaat`) libraries
+  are absent from the API's list, so they are added explicitly rather than lost.
+* The municipality picker now resolves a municipality to its library by name
+  instead of requiring an exact match. The API names agencies after themselves
+  ("Københavns Biblioteker") while the reverse-geocode lookup returns the
+  municipality ("København"), so the preselected default could not match for 13
+  of the 98 Danish municipalities. `Thisted` is the one case with no name
+  overlap at all and is handled by an explicit alias.
+* The `gatewayf` config-flow error is removed from `strings.json` and both
+  translations, since no code path can raise it any more.
+* 100 libraries can now be configured (98 from the API plus the two extras).
+
+## Version 0.9.2
+
+**Date**: `2026-11-21`
+
+### Changes
+
+* Material details (title, creators, cover, type, work URL) now come from the
+  Biblo app's record endpoint (`api.detdigitalefolkebibliotek.dk`) as JSON
+  instead of a GraphQL call against a host scraped out of the library website.
+  This removes the `temp.fbi-api.dbc.dk` staging-host fallback and closes plan
+  item 7.9. The endpoint needs no patron login, so it cannot be affected by
+  session or token problems, and it returns richer data than the old lookup
+  (publisher, page count, edition, series, shelfmark).
+* `models.libraryMaterial` reads that flat record directly; the nested
+  `manifestation` shape the old GraphQL call returned is no longer produced or
+  expected anywhere.
+* A bare faust is expanded to its `870970-basis:` record id, which is the form
+  the record endpoint requires.
+* Malformed API answers no longer break setup or hide items: a record response
+  of `{"data": null}` is treated as a failed lookup (the loan, reservation or
+  fee is kept without details), and the agency list tolerates a null payload,
+  entries without an id, and non-dict entries by falling back to the scraped
+  page instead of raising.
+* The config flow falls back to the Biblo API's JSON agency list when the login
+  page's `var libraries` script cannot be parsed, so a redesign of that page no
+  longer leaves the library dropdown empty. The scraped page stays the primary
+  source: it is the only one that flags `gatewayf` libraries, and it uses the
+  municipality names the flow and the reverse-geocode default rely on.
+* No change to which libraries can be configured, and no new Python
+  dependencies.
+
+## Version 0.9.1
+
+**Date**: `2026-11-20`
+
+### Changes
+
+* Add `scripts/async_test_module.py`, a development helper that logs in to the
+  library accounts and prints their current status (profile, loans, overdue
+  loans, reservations, ready reservations, fees, the digital counters and which
+  digital backend the site selects), either as a readable report or as JSON. It
+  runs the synchronous client through `asyncio.to_thread` and needs no Home
+  Assistant install.
+* The script fetches every account in the secrets file in one run and guards
+  against account lockouts: each user id is attempted at most once, and an id
+  paired with conflicting pincodes aborts before any network call.
+* No runtime change to the integration.
+
+## Version 0.9.0
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Normalize Biblo timestamps to local time so remaining loan days are correct
+  around midnight and daylight-saving changes.
+* Preserve optional Biblo reservation queue positions as `queue_number`.
+* Expose `other_digital_loans` for types outside e-books/audiobooks, preserving
+  the original material type and reconciling the digital format counts.
+* Support Biblo through DBC's Biblio LMS adapter, selected automatically when
+  the library website enables it. The existing digital-loans option and
+  bibliotekslogin continue to apply; libraries that have not switched retain
+  the Pubhub connection.
+* Fetch all pages of digital loans and reservations, including available
+  reservation offers. Failed requests keep the last successful results.
+* Dashboard compatibility: Biblio exposes `audiobook` and `podcast` material
+  types. Existing icon maps must support them or use a fallback lookup;
+  see the reusable template in `BIBLO.md`.
+* Expose Biblio quotas as `digital_loans_quota` on the general sensor. Shared
+  allowances are not presented as independent e-book and audiobook quotas.
+* See `BIBLO.md` for contract sources, limitations and manual verification.
 
 ## Version 0.8.2
 

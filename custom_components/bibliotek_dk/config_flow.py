@@ -9,7 +9,6 @@ from homeassistant.helpers import selector
 from homeassistant import config_entries
 
 from .library_api import Library
-from bs4 import BeautifulSoup as BS
 from typing import Any
 
 import json
@@ -20,7 +19,6 @@ import voluptuous as vol
 
 from .const import (
     CONF_AGENCY,
-    CONF_BRANCH_ID,
     CONF_HOST,
     CONF_MUNICIPALITY,
     CONF_NAME,
@@ -31,12 +29,17 @@ from .const import (
     CONF_SHOW_RESERVATIONS,
     CONF_UPDATE_INTERVAL,
     CONF_USER_ID,
+    DDF_API_KEY,
+    DDF_APP_TYPE,
+    DDF_APP_VERSION,
+    DDF_INSTALLATION_ID,
     DOMAIN,
+    EXTRA_LIBRARIES,
     HEADERS,
+    MUNICIPALITY_ALIASES,
     MUNICIPALITY_LOOKUP_URL,
     UPDATE_INTERVAL,
-    URL_FALLBACK,
-    URL_LOGIN_PAGE,
+    URL_DDF_BASE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,61 +48,130 @@ _LOGGER = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 10
 
 
-def refreshLibraries() -> tuple[dict, dict]:
-    """Fetch and parse the list of libraries from the fallback login page.
-
-    Returns a ``(libraries, excLibraries)`` pair: libraries usable through this
-    integration, and those that use ``gatewayf`` and therefore cannot be used.
-    """
+def _ddfSession():
+    """A session carrying the Biblo app's client-hint headers."""
     session = requests.Session()
-    session.headers = HEADERS
+    session.headers = {
+        "Accept": "application/json",
+        "Accept-Encoding": "gzip, deflate",
+        "x-app": DDF_APP_VERSION,
+        "x-app-type": DDF_APP_TYPE,
+        "x-installation-id": DDF_INSTALLATION_ID,
+        "x-api-key": DDF_API_KEY,
+    }
+    return session
 
+
+def _librariesFromDdf():
+    """Fetch the agency list as JSON from the Biblo app API.
+
+    Returns a ``{name: {agency, host}}`` mapping, or ``None`` when the API is
+    unreachable or answers something unexpected, so the caller can report
+    ``cannot_connect`` instead of showing a broken dropdown.
+
+    The API lists agencies by their own names ("Københavns Biblioteker") rather
+    than by municipality ("København"), so the municipality is resolved
+    separately by ``resolveMunicipality``.
+    """
     try:
-        r = session.get(URL_FALLBACK + URL_LOGIN_PAGE, timeout=REQUEST_TIMEOUT)
+        r = _ddfSession().get(f"{URL_DDF_BASE}/v1/agencies", timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
+        agencies = r.json()["data"]
+    except (
+        requests.exceptions.RequestException,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as err:
+        _LOGGER.warning(f"Could not load libraries from the Biblo API: {err}")
+        return None
 
-    except requests.exceptions.HTTPError as err:
-        raise CannotConnect from err
-    except requests.exceptions.Timeout as err:
-        _LOGGER.error(f"Timeout fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})")
-        raise CannotConnect from err
-    except requests.exceptions.TooManyRedirects as err:
-        _LOGGER.error(f"Too many redirects fecthing ({URL_FALLBACK + URL_LOGIN_PAGE})")
-        raise CannotConnect from err
-    except requests.exceptions.RequestException as err:
-        raise CannotConnect from err
+    # A 200 with `{"data": null}` is a failed lookup, not an empty list: iterate
+    # only a real sequence, and skip any entry missing an id rather than raising.
+    if not isinstance(agencies, list):
+        _LOGGER.warning(f"Unexpected agency payload from the Biblo API: {agencies!r}")
+        return None
 
-    try:
-        soup = BS(r.text, "html.parser")
-        librariesJSON = json.loads(
-            soup.find(
-                "script",
-                string=re.compile(r"^var libraries = (.)", re.MULTILINE | re.DOTALL),
-            ).string.replace("var libraries = ", "")
+    libraries = {}
+    for agency in agencies:
+        if not isinstance(agency, dict):
+            continue
+        name, domain, agency_id = (
+            agency.get("name"),
+            agency.get("urlDomain"),
+            agency.get("id"),
         )
-    except (AttributeError, KeyError) as err:
-        _LOGGER.error(
-            f"Error loading the libraries from the fallback url. Error: {err}"
-        )
-        return {}, {}
+        if not name or not domain or not agency_id:
+            continue
+        libraries[name] = {
+            CONF_AGENCY: str(agency_id),
+            CONF_HOST: f"https://{domain}",
+        }
 
-    libraries, excLibraries = {}, {}
-    if "folk" in librariesJSON.keys():
-        for library in librariesJSON["folk"]:
-            p = re.compile(r"^.+?[^\/:](?=[?\/]|$)")
-            m = p.match(library["registrationUrl"])
-            # Only use libraries NOT using gatewayf
-            if "gatewayf" not in library["registrationUrl"]:
-                libraries[library[CONF_NAME]] = {
-                    CONF_AGENCY: library[CONF_BRANCH_ID],
-                    CONF_HOST: m.group(),
-                }
-            else:
-                excLibraries[library[CONF_NAME]] = {
-                    CONF_AGENCY: library[CONF_BRANCH_ID],
-                    CONF_HOST: m.group(),
-                }
-    return libraries, excLibraries
+    # An empty result means the API answered but carried nothing usable, which
+    # is a failure, not a two-library list: return None so the caller reports
+    # cannot_connect instead of showing a near-empty dropdown.
+    if not libraries:
+        return None
+
+    # The API omits the Faroese and Greenlandic agencies, which the integration
+    # supports, so add them back explicitly rather than losing them silently.
+    for agency_id, name, host in EXTRA_LIBRARIES:
+        libraries.setdefault(name, {CONF_AGENCY: agency_id, CONF_HOST: host})
+
+    return libraries
+
+
+def refreshLibraries() -> dict:
+    """Build the ``{name: {agency, host}}`` library list for the config flow.
+
+    The API's agency list is the only source. The old login-page scrape is gone:
+    it depended on the page's HTML shape and a `var libraries` script, which is
+    exactly the coupling this endpoint removes.
+    """
+    libraries = _librariesFromDdf()
+    if libraries is None:
+        # Raise so the flow reports cannot_connect rather than showing an empty
+        # dropdown that looks like a successful setup.
+        raise CannotConnect
+    return libraries
+
+
+def _fold(text: str) -> str:
+    """Lower-case and strip Danish diacritics, for name matching only."""
+    folded = text.lower().translate(
+        str.maketrans({"æ": "ae", "ø": "o", "å": "a", "ö": "o", "ä": "a", "é": "e"})
+    )
+    # "Aa" is an older spelling of "å", so treat both spellings as one.
+    return folded.replace("aa", "a")
+
+
+def resolveMunicipality(municipality: str, libraries: dict) -> str | None:
+    """Map a municipality name onto a key of ``libraries``.
+
+    The dropdown is keyed by agency name ("Københavns Biblioteker") while the
+    reverse-geocode lookup returns the municipality ("København"), so an exact
+    dict lookup can never preselect the right entry. Resolution order:
+
+    1. an exact name match,
+    2. an explicit ``MUNICIPALITY_ALIASES`` entry,
+    3. the single library whose folded name contains the folded municipality.
+
+    Returns ``None`` when nothing matches or the substring match is ambiguous,
+    so the caller keeps its own default rather than guessing.
+    """
+    if not municipality:
+        return None
+    if municipality in libraries:
+        return municipality
+
+    alias = MUNICIPALITY_ALIASES.get(municipality)
+    if alias in libraries:
+        return alias
+
+    wanted = _fold(municipality)
+    matches = [name for name in libraries if wanted in _fold(name)]
+    return matches[0] if len(matches) == 1 else None
 
 
 def municipalityFromCoor(lon, lat) -> str:
@@ -135,9 +207,18 @@ async def validate_input(
     hass: HomeAssistant, data: dict[str, Any], libraries
 ) -> dict[str, Any]:
 
+    # The dropdown is keyed by agency name, which is not always the municipality
+    # ("København" -> "Københavns Biblioteker"), so resolve before looking up.
+    key = resolveMunicipality(data[CONF_MUNICIPALITY], libraries)
+    if key is None:
+        # Answering a value that is not in the list (a hand-crafted request, or
+        # an agency that disappeared between showing the form and submitting it).
+        # Reported as "unknown" by the flow, like the KeyError this replaced.
+        raise ValueError(f"Unknown library {data[CONF_MUNICIPALITY]!r}")
+
     # Retrieve HOST and UPDATE_INTERVAL
-    data[CONF_HOST] = libraries[data[CONF_MUNICIPALITY]][CONF_HOST]
-    data[CONF_AGENCY] = libraries[data[CONF_MUNICIPALITY]][CONF_AGENCY]
+    data[CONF_HOST] = libraries[key][CONF_HOST]
+    data[CONF_AGENCY] = libraries[key][CONF_AGENCY]
     data[CONF_UPDATE_INTERVAL] = (
         data[CONF_UPDATE_INTERVAL] if data[CONF_UPDATE_INTERVAL] else UPDATE_INTERVAL
     )
@@ -193,12 +274,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Async fetch list of "folk" libraries
         try:
-            libraries, excLibraries = await self.hass.async_add_executor_job(
-                refreshLibraries
-            )
+            libraries = await self.hass.async_add_executor_job(refreshLibraries)
         except CannotConnect:
             errors["base"] = "cannot_connect"
-            libraries, excLibraries = {}, {}
+            libraries = {}
 
         municipality = ""
         try:
@@ -207,10 +286,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.hass.config.longitude,
                 self.hass.config.latitude,
             )
-            if municipality in excLibraries.keys():
-                raise gatewayf
-        except gatewayf:
-            errors["base"] = "gatewayf"
+        except Exception:
+            _LOGGER.exception("Unexpected exception looking up the municipality")
+
+        # The dropdown is keyed by agency name, so preselect the resolved key
+        # rather than the raw municipality (which would be an invalid default
+        # for the 13 municipalities whose library is named differently).
+        defaultLibrary = resolveMunicipality(municipality, libraries)
 
         if user_input is not None:
             try:
@@ -236,7 +318,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Optional(CONF_NAME, default=""): str,
                     vol.Required(
-                        CONF_MUNICIPALITY, default=municipality
+                        CONF_MUNICIPALITY,
+                        default=defaultLibrary or vol.UNDEFINED,
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=list(libraries.keys()),
@@ -290,10 +373,6 @@ class OptionsFlow(config_entries.OptionsFlow):
                 options_schema, self.config_entry.options
             ),
         )
-
-
-class gatewayf(HomeAssistantError):
-    """Error to indicate municipality is using gatewayf."""
 
 
 class UserExist(HomeAssistantError):

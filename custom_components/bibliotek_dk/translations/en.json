@@ -4,7 +4,6 @@
       "already_configured": "Device is already configured"
     },
     "error": {
-      "gatewayf": "Your municipality uses WAYF as login, which is not supported by this integration",
       "user_exist": "User exist",
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
@@ -19,7 +18,7 @@
           "pincode": "PIN code",
           "update_interval": "Update interval in minuts",
           "show_loans": "Show loans",
-          "show_eloans": "Show loans from eReolen",
+          "show_eloans": "Show loans from Biblo / eReolen",
           "show_debts": "Show depts",
           "show_reservations": "Show reservations"
         }
@@ -32,7 +31,7 @@
         "data": {
           "update_interval": "Update interval in minuts",
           "show_loans": "Show loans",
-          "show_eloans": "Show loans from eReolen",
+          "show_eloans": "Show loans from Biblo / eReolen",
           "show_debts": "Show depts",
           "show_reservations": "Show reservations"
         }

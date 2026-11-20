@@ -87,14 +87,12 @@ def _library():
 def _loan(title, expire):
     mat = libraryMaterial(
         {
-            "manifestation": {
-                "pid": "p",
-                "ownerWork": {"workId": "work-of:x"},
-                "titles": {"full": [title]},
-                "creators": [{"display": "Author"}],
-                "cover": {"thumbnail": "c"},
-                "materialTypes": [{"materialTypeSpecific": {"display": "bog"}}],
-            }
+            "recordId": "870970-basis:1",
+            "workId": "work-of:x",
+            "title": title,
+            "creators": ["Author"],
+            "coverUrl": "c",
+            "materialType": {"display": "bog"},
         }
     )
     loan = libraryLoan.__new__(libraryLoan)
@@ -363,3 +361,25 @@ async def test_setup_maps_auth_failure_to_update_failed(monkeypatch):
     monkeypatch.setattr(Library, "update", other_update)
     with pytest.raises(RuntimeError):
         await coordinator.update_method()
+
+
+@pytest.mark.parametrize(
+    "expiry", ["2026-11-20T23:30:00+00:00", "2026-07-20T22:30:00+00:00"]
+)
+def test_biblio_remaining_days_use_local_calendar(expiry, monkeypatch):
+    from custom_components.bibliotek_dk.biblio import _date
+    from custom_components.bibliotek_dk import sensor as sensor_module
+
+    instant = dt.datetime.fromisoformat(expiry)
+    local_expiry = instant.astimezone().replace(tzinfo=None)
+    today = local_expiry.replace(hour=12, minute=0) - dt.timedelta(days=1)
+
+    class Clock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return today
+
+    monkeypatch.setattr(sensor_module, "datetime", Clock)
+    lib = _library()
+    lib.user.loans = [_loan("Digital", _date(expiry))]
+    assert LibrarySensor(lib, FakeCoordinator()).state == 1

@@ -12,9 +12,17 @@ from dateutil import parser
 from datetime import timedelta, datetime
 import logging
 import re
+from requests.exceptions import RequestException
+
+from .biblio import BiblioClient, BiblioError
 
 from .const import (
+    DDF_API_KEY,
+    DDF_APP_TYPE,
+    DDF_APP_VERSION,
+    DDF_INSTALLATION_ID,
     URL_BRANCH_GRAPHQL,
+    URL_DDF_BASE,
     URL_FEES,
     URL_LOANS,
     URL_LOANS_RENEW,
@@ -22,7 +30,6 @@ from .const import (
     URL_PUBHUB_BASE,
     URL_RESERVATIONS,
     branch_query,
-    details_query,
 )
 from .models import (
     libraryDebt,
@@ -36,6 +43,21 @@ from .transport import REQUEST_TIMEOUT, LibraryTransport
 
 # Maximum number of entries kept in the material-details cache.
 DETAILS_CACHE_MAX = 500
+
+# FBS reports a physical loan's record as a bare faust ("39134543"), while the
+# Biblo API wants a full record id. The national bibliography's fausts all live
+# under this basis, which is what the old GraphQL details lookup resolved to.
+FAUST_BASIS = "870970-basis:"
+
+
+def _recordId(faust):
+    """Expand a bare faust into the record id the Biblo API expects.
+
+    An id that already carries a basis (``870970-basis:123``) is left alone, so
+    a caller holding a full id keeps working.
+    """
+    faust = str(faust)
+    return faust if ":" in faust else f"{FAUST_BASIS}{faust}"
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,6 +119,7 @@ class Library:
         self._reservations_ready = {"physical": [], "ereolen": []}
 
         self._transport = LibraryTransport(host, self.user)
+        self._biblio = None
 
     # The update function is called from the coordinator from Home Assistant
     def update(self):
@@ -113,6 +136,21 @@ class Library:
             raise LibraryAuthError(
                 f"Login failed for {self.user.date} (check user id and pincode)"
             )
+
+        if self.use_eReolen:
+            # Follow the library website's rollout flag, not just the presence
+            # of an adapter URL (the URL is also advertised before rollout).
+            try:
+                digital_config = self.urls
+            except RequestException as err:
+                _LOGGER.warning(f"Error discovering digital provider: {err}")
+                digital_config = {}
+            if digital_config.get("data-use-biblio-adapter-config") == "1":
+                base_url = digital_config.get("data-biblio-base-url")
+                if base_url and self._biblio is None:
+                    self._biblio = BiblioClient(self, base_url)
+                    self.user.eBooksQuota = None
+                    self.user.audioBooksQuota = None
 
         # Fetch the profile on the first poll and then at most once a day, so
         # changes such as branch, address or notification settings propagate.
@@ -168,6 +206,22 @@ class Library:
     @property
     def json_header(self):
         return self._transport.json_header
+
+    @property
+    def ddf_header(self):
+        """Headers for the Biblo app API: client hints, no bearer token.
+
+        The record endpoint is anonymous, so this deliberately carries no
+        ``Authorization`` header — it must not depend on a patron session.
+        """
+        return {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate",
+            "x-app": DDF_APP_VERSION,
+            "x-app-type": DDF_APP_TYPE,
+            "x-installation-id": DDF_INSTALLATION_ID,
+            "x-api-key": DDF_API_KEY,
+        }
 
     @property
     def user_token(self):
@@ -235,21 +289,36 @@ class Library:
         if faust in self._details:
             return self._details[faust]
         data = {}
-        params = {"query": details_query, "variables": {"faust": faust}}
-        url = self.urls.get(
-            "data-fbi-global-base-url",
-            "https://temp.fbi-api.dbc.dk/next-present/graphql",
+        res = self._get(
+            f"{URL_DDF_BASE}/v1/agencies/{self.agency}/records/{_recordId(faust)}",
+            headers=self.ddf_header,
         )
-        res = self._post(url, headers=self.json_header, json=params)
         if res.status_code == 200:
-            data = res.json()["data"]
-            # Bound the cache so it does not grow for the process lifetime.
-            if len(self._details) >= DETAILS_CACHE_MAX:
-                self._details.clear()
-            self._details[faust] = data
+            try:
+                data = res.json()["data"]
+            except (KeyError, TypeError, ValueError) as err:
+                data = None
+                err_msg = err
+            else:
+                err_msg = None
+            # A 200 carrying `{"data": null}` is a failed lookup, not a hit: the
+            # models iterate the payload, so caching a non-dict would both blank
+            # the details and poison the cache for the rest of the process.
+            if not isinstance(data, dict):
+                _LOGGER.warning(
+                    f"({self.user.date}) Unexpected record payload for '{faust}': "
+                    f"{err_msg or data!r}"
+                )
+                data = {}
+            else:
+                # Bound the cache so it does not grow for the process lifetime.
+                if len(self._details) >= DETAILS_CACHE_MAX:
+                    self._details.clear()
+                self._details[faust] = data
         else:
             _LOGGER.warning(
-                f"({self.user.date}) Error getting details for material: '{faust}' ({res.status_code})"
+                f"({self.user.date}) Error getting details for material: "
+                f"'{faust}' ({res.status_code})"
             )
         return data
 
@@ -261,7 +330,8 @@ class Library:
                 self._urls = {
                     m[0]: m[1]
                     for m in re.findall(
-                        r'(data-[a-zA-Z0-9\-\_]+-url)="([^"]*)"', res.text
+                        r'(data-(?:[a-zA-Z0-9\-\_]+-url|use-biblio-adapter-config))="([^"]*)"',
+                        res.text,
                     )
                 }
             else:
@@ -341,10 +411,13 @@ class Library:
                 f"({self.user.date}) Error fetching loans ({res.status_code})"
             )
         # Ebooks
-        if self.use_eReolen:
+        if self.use_eReolen and self._biblio is not None:
+            self._fetchBiblioLoans()
+        elif self.use_eReolen:
             res = self._get(f"{URL_PUBHUB_BASE}/user/loans", headers=self.json_header)
             if res.status_code == 200:
                 edata = res.json()
+                self.user.otherDigitalLoans = 0
 
                 try:
                     self.user.eBooks = edata["userData"]["totalEbookLoans"]
@@ -402,6 +475,8 @@ class Library:
             self.user.eBooksQuota = 0
             self.user.audioBooks = 0
             self.user.audioBooksQuota = 0
+            self.user.otherDigitalLoans = 0
+            self.user.digitalLoansQuota = None
             self._loans["ereolen"] = []
             self._loans_overdue["ereolen"] = []
 
@@ -412,6 +487,51 @@ class Library:
         self.user.loansOverdue = (
             self._loans_overdue["physical"] + self._loans_overdue["ereolen"]
         )
+
+    def _fetchBiblioLoans(self):
+        try:
+            loans = self._biblio.loans()
+        except (BiblioError, RequestException, KeyError, TypeError, ValueError) as err:
+            _LOGGER.warning(f"Error fetching Biblo loans: {err}")
+            return
+        self._loans["ereolen"] = loans
+        self._loans_overdue["ereolen"] = []
+        self.user.eBooks = sum(loan.type == "epub" for loan in loans)
+        self.user.audioBooks = sum(loan.type == "audiobook" for loan in loans)
+        # Preserve undocumented/future types rather than inventing an audio
+        # classification or silently losing them from the format counters.
+        self.user.otherDigitalLoans = sum(
+            loan.type not in ("epub", "audiobook") for loan in loans
+        )
+        try:
+            quotas = self._biblio.quotas()
+            # An account can have quotas at several organizations. Do not
+            # silently sum them into a fictitious per-format allowance.
+            if len(quotas) == 1:
+                quota = quotas[0]
+                if quota["split_on_format"]:
+                    maximum = quota["max_concurrent_user_loans"]
+                    ebooks, audio = maximum["ebook"], maximum["audiobook"]
+                else:
+                    # Shared allowances cannot be expressed as two independent
+                    # quotas. The exact response is exposed separately below.
+                    ebooks, audio = None, None
+            else:
+                ebooks, audio = None, None
+            self.user.eBooksQuota = ebooks
+            self.user.audioBooksQuota = audio
+            self.user.digitalLoansQuota = quotas
+        except (BiblioError, RequestException, KeyError, TypeError, ValueError) as err:
+            _LOGGER.warning(f"Error fetching Biblo quotas: {err}")
+
+    def _fetchBiblioReservations(self):
+        try:
+            waiting, ready = self._biblio.reservations()
+        except (BiblioError, RequestException, KeyError, TypeError, ValueError) as err:
+            _LOGGER.warning(f"Error fetching Biblo reservations: {err}")
+            return
+        self._reservations["ereolen"] = waiting
+        self._reservations_ready["ereolen"] = ready
 
     # Renew one or more physical loans. ``loan_ids`` are the API's ``loanId``
     # values, exposed to users as ``renew_id`` on the loan sensor attributes.
@@ -499,7 +619,9 @@ class Library:
             )
 
         # eReolen
-        if self.use_eReolen:
+        if self.use_eReolen and self._biblio is not None:
+            self._fetchBiblioReservations()
+        elif self.use_eReolen:
             res = self._get(
                 f"{URL_PUBHUB_BASE}/user/reservations", headers=self.json_header
             )

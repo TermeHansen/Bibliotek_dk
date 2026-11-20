@@ -13,17 +13,15 @@ from custom_components.bibliotek_dk.models import (
 )
 
 
-def _manifestation(pid="870970-basis:123", work_id="work-of:870970-basis:123"):
-    """Build a physical-manifestation details payload."""
+def _record(record_id="870970-basis:123", work_id="work-of:870970-basis:123"):
+    """Build a physical record payload as the Biblo API returns it."""
     return {
-        "manifestation": {
-            "pid": pid,
-            "ownerWork": {"workId": work_id},
-            "titles": {"full": ["Some Title"]},
-            "creators": [{"display": "A. Author"}],
-            "cover": {"thumbnail": "https://example.invalid/cover.jpg"},
-            "materialTypes": [{"materialTypeSpecific": {"display": "bog"}}],
-        }
+        "recordId": record_id,
+        "workId": work_id,
+        "title": "Some Title",
+        "creators": ["A. Author"],
+        "coverUrl": "https://example.invalid/cover.jpg",
+        "materialType": {"display": "bog", "category": "BOOKS"},
     }
 
 
@@ -40,7 +38,7 @@ def _ereolen_product(isbn="9788740003826"):
 
 
 def test_physical_material_url_from_work_id():
-    mat = libraryMaterial(_manifestation(work_id="work-of:870970-basis:51069609"))
+    mat = libraryMaterial(_record(work_id="work-of:870970-basis:51069609"))
     assert mat.title == "Some Title"
     assert mat.creators == "A. Author"
     assert mat.type == "bog"
@@ -48,8 +46,8 @@ def test_physical_material_url_from_work_id():
 
 
 def test_physical_material_url_missing_owner_work():
-    data = _manifestation()
-    del data["manifestation"]["ownerWork"]
+    data = _record()
+    del data["workId"]
     mat = libraryMaterial(data)
     assert mat.url is None
 
@@ -93,7 +91,7 @@ def test_material_parse_failure_is_swallowed():
 
 
 def test_debt_fee_type_and_amount():
-    debt = libraryDebt(_manifestation())
+    debt = libraryDebt(_record())
     debt.feeType = "overdue"
     debt.feeAmount = "25.50"
     assert debt.feeType == "overdue"
