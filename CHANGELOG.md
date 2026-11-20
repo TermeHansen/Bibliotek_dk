@@ -25,6 +25,9 @@
 
 ### Changes
 
+* Preserve optional Biblo reservation queue positions as `queue_number`.
+* Expose `other_digital_loans` for types outside e-books/audiobooks, preserving
+  the original material type and reconciling the digital format counts.
 * Support Biblo through DBC's Biblio LMS adapter, selected automatically when
   the library website enables it. The existing digital-loans option and
   bibliotekslogin continue to apply; libraries that have not switched retain

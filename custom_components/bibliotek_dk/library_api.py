@@ -360,6 +360,7 @@ class Library:
             res = self._get(f"{URL_PUBHUB_BASE}/user/loans", headers=self.json_header)
             if res.status_code == 200:
                 edata = res.json()
+                self.user.otherDigitalLoans = 0
 
                 try:
                     self.user.eBooks = edata["userData"]["totalEbookLoans"]
@@ -417,6 +418,7 @@ class Library:
             self.user.eBooksQuota = 0
             self.user.audioBooks = 0
             self.user.audioBooksQuota = 0
+            self.user.otherDigitalLoans = 0
             self.user.digitalLoansQuota = None
             self._loans["ereolen"] = []
             self._loans_overdue["ereolen"] = []
@@ -439,6 +441,11 @@ class Library:
         self._loans_overdue["ereolen"] = []
         self.user.eBooks = sum(loan.type == "epub" for loan in loans)
         self.user.audioBooks = sum(loan.type == "audiobook" for loan in loans)
+        # Preserve undocumented/future types rather than inventing an audio
+        # classification or silently losing them from the format counters.
+        self.user.otherDigitalLoans = sum(
+            loan.type not in ("epub", "audiobook") for loan in loans
+        )
         try:
             quotas = self._biblio.quotas()
             # An account can have quotas at several organizations. Do not

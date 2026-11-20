@@ -44,7 +44,8 @@ multiple organizations cannot be represented by these two fields, so those
 fields are `null`. The general sensor's `digital_loans_quota` attribute
 contains the organization quotas, including monthly and concurrent limits.
 
-The new reservation response does not supply a queue position. Available
+Waiting reservations expose optional `queue_position` as `queue_number`;
+markets that omit it retain `null` and sort after numbered reservations. Available
 offers appear in the ready-reservations sensor with their expiry deadline.
 Digital materials have bibliography search links but this implementation
 does not yet resolve cover images. It does not stream, borrow, cancel,
@@ -54,6 +55,13 @@ accept an offer, or renew digital materials.
 
 The loan attribute names remain unchanged. Biblio material types include
 `audiobook` and `podcast`; e-books are mapped to the existing `epub` value.
+The `podcast` value was inferred from the live dashboard's unknown-type error;
+it was not independently confirmed from a saved adapter payload and is not
+in the documented enum. Unknown types are preserved. The general sensor's
+`other_digital_loans` counts everything except `epub` and `audiobook`, including
+`podcast` and `paper_book`, without assigning them to an unsupported quota.
+For Biblo, `ebooks + audiobooks + other_digital_loans` equals the digital loan
+count; the loans sensor also includes physical loans.
 Old eReolen templates may only recognize `zip` for audio. A template such as
 `types[book.type] + book.title` fails for an unknown type and can hide the
 entire list. Add the new types to the icon map and use a fallback lookup,
