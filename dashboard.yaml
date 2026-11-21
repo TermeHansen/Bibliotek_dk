@@ -64,23 +64,33 @@ views:
       type: entities
       title: Bibliotekslån overskredet
     filter:
-      template: "{% set data = namespace(books=[]) %}\n{%- set types = {'epub': \"\U0001F4DC\",\n
-        \           'audiobook': '\U0001F3A7', 'podcast': '\U0001F399️',\n            'zip':
-        \"\U0001F3A7\",\n            'bog': \"\U0001F4D6\",\n            'dvd': \"\U0001F4C0\",\n
-        \           'billedbog': \"\U0001F9D2\",\n            'tegneserie': \"\U0001F4D5\"}
-        -%}\n{% set libraryUsers = states.sensor\n  | selectattr('attributes.loans_overdue',
-        'defined')\n  | rejectattr('attributes.address', 'defined')\n  | rejectattr('state',
-        'eq', '0')\n  | map(attribute='entity_id')\n  | list %}\n{% for libraryUser
-        in libraryUsers %}{% set USER = state_attr(libraryUser, 'user') %} {{\n   {\n
-        \    'type': 'section',\n     'label': USER,\n   }\n  }}, {% set data.books
-        = state_attr(libraryUser,'loans_overdue')%}{% set BOOKS = data.books|list
-        %}{%- for book in BOOKS|sort(attribute='expire_date') -%}\n   {%- set DUEDATE
-        = as_datetime(book.expire_date) -%}\n   {%- set IMAGE = book.cover -%}\n   {%-
-        set AUTHOR = book.creators -%}{{\n   {\n     'type': 'custom:template-entity-row',\n
-        \    'state': time_since(DUEDATE)|default(0),\n     'name': (types.get(book.type,
-        '\U0001F4D6')+book.title)|truncate(67,true,'…'),\n     'secondary': AUTHOR,\n
-        \    'icon': 'mdi:book-open-page-variant',\n     'image': IMAGE,\n    }\n
-        \  }}, {%- endfor %}{% endfor %}"
+      template: |-
+        {% set types = {'epub': '📜', 'ebook': '📜', 'audiobook': '🎧', 'zip': '🎧', 'podcast': '🎙️', 'bog': '📖', 'paper_book': '📖', 'dvd': '📀', 'billedbog': '🧒', 'tegneserie': '📕'} %}
+        {% set ns = namespace(rows=[]) %}
+        {% for sensor in expand(integration_entities('bibliotek_dk')) %}
+          {% if sensor.attributes.loans_overdue is defined
+                and sensor.attributes.address is not defined
+                and has_value(sensor.entity_id) %}
+            {% set books = sensor.attributes.loans_overdue or [] %}
+            {% if books %}
+              {% set ns.rows = ns.rows + [{'type': 'section', 'label': sensor.attributes.user}] %}
+              {% for book in books %}
+                {% set due = as_datetime(book.expire_date | default(none), none) %}
+                {% set ns.rows = ns.rows + [{
+                  'type': 'custom:template-entity-row',
+                  'entity': sensor.entity_id,
+                  'name': types.get(book.type | default(''), '📖') ~ ' ' ~ (book.title | default('Titel ukendt', true)),
+                  'secondary': book.creators | default('', true),
+                  'state': time_since(due) if due else 'Afleveringsdato ukendt',
+                  'icon': 'mdi:book-open-page-variant',
+                  'image': book.cover | default(none),
+                  'tap_action': {'action': 'none'}
+                }] %}
+              {% endfor %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.rows }}
     sort:
       reverse: false
     else:
@@ -163,23 +173,33 @@ views:
       type: entities
       title: Biblioteksreserveringer til afhentning
     filter:
-      template: "{% set data = namespace(books=[]) %}\n{%- set types = {'epub': \"\U0001F4DC\",\n
-        \           'audiobook': '\U0001F3A7', 'podcast': '\U0001F399️',\n            'zip':
-        \"\U0001F3A7\",\n            'bog': \"\U0001F4D6\",\n            'dvd': \"\U0001F4C0\",\n
-        \           'billedbog': \"\U0001F9D2\",\n            'tegneserie': \"\U0001F4D5\"}
-        -%}\n{% set libraryUsers = states.sensor\n  | selectattr('attributes.reservations_ready',
-        'defined')\n  | rejectattr('attributes.address', 'defined')\n  | rejectattr('state',
-        'eq', '0')\n  | map(attribute='entity_id')\n  | list %}\n{% for libraryUser
-        in libraryUsers %}{% set USER = state_attr(libraryUser, 'user') %} {{\n   {\n
-        \    'type': 'section',\n     'label': USER,\n   }\n  }}, {% set data.books
-        = state_attr(libraryUser,'reservations_ready')%}{% set BOOKS = data.books|list
-        %}{%- for book in BOOKS|sort(attribute='pickup_date') -%}\n   {%- set STATE
-        = 'Afhent senest: ' ~ time_until(book.pickup_date)+' i '+book.pickup_library
-        -%}\n   {%- set IMAGE = book.cover -%}\n   {%- set AUTHOR = book.creators
-        -%}{{\n   {\n     'type': 'custom:template-entity-row',\n     'state': STATE,\n
-        \    'name': (types.get(book.type, '\U0001F4D6')+book.title)|truncate(67,true,'…'),\n
-        \    'secondary': AUTHOR,\n     'icon': 'mdi:book-open-page-variant',\n     'image':
-        IMAGE,\n    }\n   }}, {%- endfor %}{% endfor %}"
+      template: |-
+        {% set types = {'epub': '📜', 'ebook': '📜', 'audiobook': '🎧', 'zip': '🎧', 'podcast': '🎙️', 'bog': '📖', 'paper_book': '📖', 'dvd': '📀', 'billedbog': '🧒', 'tegneserie': '📕'} %}
+        {% set ns = namespace(rows=[]) %}
+        {% for sensor in expand(integration_entities('bibliotek_dk')) %}
+          {% if sensor.attributes.reservations_ready is defined
+                and sensor.attributes.address is not defined
+                and has_value(sensor.entity_id) %}
+            {% set books = sensor.attributes.reservations_ready or [] %}
+            {% if books %}
+              {% set ns.rows = ns.rows + [{'type': 'section', 'label': sensor.attributes.user}] %}
+              {% for book in books %}
+                {% set due = as_datetime(book.pickup_date | default(none), none) %}
+                {% set ns.rows = ns.rows + [{
+                  'type': 'custom:template-entity-row',
+                  'entity': sensor.entity_id,
+                  'name': types.get(book.type | default(''), '📖') ~ ' ' ~ (book.title | default('Titel ukendt', true)),
+                  'secondary': book.creators | default('', true),
+                  'state': ('Afhent senest: ' ~ time_until(due) if due else 'Afhentningsdato ukendt') ~ (' i ' ~ book.pickup_library if book.pickup_library | default('', true) else ''),
+                  'icon': 'mdi:book-open-page-variant',
+                  'image': book.cover | default(none),
+                  'tap_action': {'action': 'none'}
+                }] %}
+              {% endfor %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.rows }}
     sort:
       reverse: false
     else:
@@ -206,16 +226,22 @@ views:
           {% if sensor.attributes.loans is defined
                 and sensor.attributes.address is not defined
                 and has_value(sensor.entity_id) %}
-            {% set loans = sensor.attributes.loans %}
+            {% set loans = sensor.attributes.loans or [] %}
+            {% set overdue = namespace(any=false) %}
+            {% for other in expand(integration_entities('bibliotek_dk')) %}
+              {% if other.attributes.loans_overdue is defined
+                    and other.attributes.address is not defined
+                    and has_value(other.entity_id)
+                    and config_entry_id(other.entity_id) == config_entry_id(sensor.entity_id)
+                    and other.attributes.loans_overdue %}
+                {% set overdue.any = true %}
+              {% endif %}
+            {% endfor %}
             {% set entry_id = config_entry_id(sensor.entity_id) %}
-            {% if loans and entry_id %}
+            {% if entry_id and (loans or overdue.any) %}
               {% set ns.rows = ns.rows + [{
                 'type': 'section', 'label': sensor.attributes.user
               }] %}
-              {% set eligible = loans
-                  | selectattr('renewable', 'equalto', true)
-                  | rejectattr('renew_id', 'none') | list %}
-              {% if eligible %}
                 {% set ns.rows = ns.rows + [{
                   'type': 'button',
                   'name': 'Forny alle lån, der kan fornyes',
@@ -231,7 +257,6 @@ views:
                     }
                   }
                 }] %}
-              {% endif %}
               {% for book in loans %}
                 {% set due = as_datetime(book.expire_date, none) %}
                 {% set due_text = time_until(due) if due else 'Afleveringsdato ukendt' %}
@@ -240,7 +265,7 @@ views:
                   'action': 'perform-action',
                   'perform_action': 'bibliotek_dk.renew_loans',
                   'data': {'config_entry_id': entry_id, 'loan_ids': [book.renew_id]},
-                  'confirmation': {'text': 'Forny ' ~ book.title ~ '?'}
+                  'confirmation': {'text': 'Forny ' ~ (book.title | default('Titel ukendt', true)) ~ '?'}
                 } if can_renew else {'action': 'none'} %}
                 {% set ns.rows = ns.rows + [{
                   'type': 'custom:template-entity-row',

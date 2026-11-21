@@ -6,6 +6,9 @@
 
 ### Changes
 
+* Keep bulk renewal available for overdue-only accounts. Guard overdue and
+  pickup rows against missing metadata and unavailable sensors; render the
+  shipped dashboard templates in regression tests.
 * Restore material-type symbols before loan titles, including when cover art is
   present. Show reservation queue positions in the dashboard example.
 * Skip malformed individual Biblo loans/reservations while publishing valid

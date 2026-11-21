@@ -89,6 +89,9 @@ It discovers all configured accounts automatically. Tap a loan marked
 **Forny** to renew it, or **Forny alle** to renew the eligible physical loans
 for that account. Both actions ask for confirmation. Digital loans and
 physical loans the library marks as nonrenewable have no renewal action.
+The account-level button appears when there are current or overdue loans,
+independently of cached eligibility. It checks the current physical loans when
+clicked and safely does nothing if the library permits no renewals.
 The existing read-only/cover-popup cards remain available.
 
 Illustration with synthetic example data (not a screenshot of an installed

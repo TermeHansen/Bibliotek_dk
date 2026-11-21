@@ -15,16 +15,22 @@ filter:
       {% if sensor.attributes.loans is defined
             and sensor.attributes.address is not defined
             and has_value(sensor.entity_id) %}
-        {% set loans = sensor.attributes.loans %}
+        {% set loans = sensor.attributes.loans or [] %}
+        {% set overdue = namespace(any=false) %}
+        {% for other in expand(integration_entities('bibliotek_dk')) %}
+          {% if other.attributes.loans_overdue is defined
+                and other.attributes.address is not defined
+                and has_value(other.entity_id)
+                and config_entry_id(other.entity_id) == config_entry_id(sensor.entity_id)
+                and other.attributes.loans_overdue %}
+            {% set overdue.any = true %}
+          {% endif %}
+        {% endfor %}
         {% set entry_id = config_entry_id(sensor.entity_id) %}
-        {% if loans and entry_id %}
+        {% if entry_id and (loans or overdue.any) %}
           {% set ns.rows = ns.rows + [{
             'type': 'section', 'label': sensor.attributes.user
           }] %}
-          {% set eligible = loans
-              | selectattr('renewable', 'equalto', true)
-              | rejectattr('renew_id', 'none') | list %}
-          {% if eligible %}
             {% set ns.rows = ns.rows + [{
               'type': 'button',
               'name': 'Forny alle lån, der kan fornyes',
@@ -40,7 +46,6 @@ filter:
                 }
               }
             }] %}
-          {% endif %}
           {% for book in loans %}
             {% set due = as_datetime(book.expire_date, none) %}
             {% set due_text = time_until(due) if due else 'Afleveringsdato ukendt' %}
@@ -49,7 +54,7 @@ filter:
               'action': 'perform-action',
               'perform_action': 'bibliotek_dk.renew_loans',
               'data': {'config_entry_id': entry_id, 'loan_ids': [book.renew_id]},
-              'confirmation': {'text': 'Forny ' ~ book.title ~ '?'}
+              'confirmation': {'text': 'Forny ' ~ (book.title | default('Titel ukendt', true)) ~ '?'}
             } if can_renew else {'action': 'none'} %}
             {% set ns.rows = ns.rows + [{
               'type': 'custom:template-entity-row',
