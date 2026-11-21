@@ -589,6 +589,35 @@ def test_all_log_records_format_without_error(caplog):
     assert any("Updating" in r.getMessage() for r in caplog.records)
 
 
+def test_current_renewable_ids_include_overdue_and_exclude_ineligible_items():
+    # This endpoint only contains physical loans. Due date does not decide
+    # eligibility; the library may also allow an overdue loan to be renewed.
+    data = [
+        {"isRenewable": True, "loanDetails": {"loanId": 1, "dueDate": "2000-01-01"}},
+        {"isRenewable": False, "loanDetails": {"loanId": 2}},
+        {"isRenewable": True, "loanDetails": {"loanId": 3}},
+        {"isRenewable": True, "loanDetails": {"loanId": 1}},
+    ]
+    session = _FakeSession(get=_FakeResponse(payload=data))
+    lib = _ready_library(session)
+    lib._loans["ereolen"] = [libraryLoan({})]
+    assert lib.getRenewableLoanIds() == [1, 3]
+
+
+@pytest.mark.parametrize("payload", [None, {}, [None], [{"isRenewable": True}]])
+def test_renew_all_rejects_malformed_eligibility_instead_of_using_cached_loans(payload):
+    lib = _ready_library(_FakeSession(get=_FakeResponse(payload=payload)))
+    with pytest.raises((ValueError, KeyError, TypeError)):
+        lib.getRenewableLoanIds()
+
+
+def test_renew_all_eligibility_http_failure_does_not_fall_back_to_cache():
+    lib = _ready_library(_FakeSession(get=_FakeResponse(status_code=503)))
+    lib._loans["physical"] = [libraryLoan(_record())]
+    with pytest.raises(ValueError, match="503"):
+        lib.getRenewableLoanIds()
+
+
 def test_renew_loans_posts_ids_and_maps_status():
     response = [
         {"loanDetails": {"loanId": 1}, "renewalStatus": ["renewed"]},

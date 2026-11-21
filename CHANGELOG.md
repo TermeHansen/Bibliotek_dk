@@ -1,5 +1,33 @@
 # Changelog for Bibliotek DK Home Assistant Integration
 
+## Version 0.10.0
+
+**Date**: `2026-11-19`
+
+### Changes
+
+* Keep action and field labels in translations only; services.yaml contains
+  schemas. Add Jinja2/PyYAML to the Conda test environment, matching uv.
+* Raise the declared HA minimum to 2024.11.0 for the dashboard time_since /
+  time_until helpers; integration behavior is otherwise unchanged.
+* Keep bulk renewal available for overdue-only accounts. Guard overdue and
+  pickup rows against missing metadata and unavailable sensors; render the
+  shipped dashboard templates in regression tests.
+* Restore material-type symbols before loan titles, including when cover art is
+  present. Show reservation queue positions in the dashboard example.
+* Skip malformed individual Biblo loans/reservations while publishing valid
+  items (IMPROVEMENT_PLAN.md section 7.2). Validate metadata before caching it
+  so malformed responses are retried (section 3).
+* Use masonry instead of sections in the example dashboard.
+* Update `dashboard.yaml` with Biblo status, renewal controls, corrected fee
+  fields and explicit empty-list/unavailable-data messages.
+* Add `bibliotek_dk.renew_all_loans` to renew currently eligible physical
+  loans for one account. Eligibility is fetched from the library when called;
+  failed lookups do not fall back to stale sensor data.
+* Add the optional `loans_card_renewal.yaml` dashboard card with individual
+  and per-account renewal controls, including confirmation dialogs. The
+  existing `renew_loans` action and read-only cards continue to work.
+
 ## Version 0.9.4
 
 **Date**: `2026-11-20`

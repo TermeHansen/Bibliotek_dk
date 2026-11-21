@@ -26,6 +26,16 @@
     }
   },
   "services": {
+    "renew_all_loans": {
+      "name": "Renew all eligible loans",
+      "description": "Renew all currently renewable physical loans for one library account. Digital loans are excluded; eligibility is checked again when called.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "The Bibliotek configuration entry whose physical loans should be renewed."
+        }
+      }
+    },
     "renew_loans": {
       "name": "Renew loans",
       "description": "Renew one or more physical loans for a library account.",

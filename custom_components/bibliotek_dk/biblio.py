@@ -6,12 +6,15 @@ The adapter accepts the same login.bib.dk end-user token as the physical API.
 
 from __future__ import annotations
 
+import logging
 from urllib.parse import quote
 
 from dateutil import parser
 from requests.exceptions import RequestException
 
 from .models import libraryLoan, libraryReservation, libraryReservationReady
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class BiblioError(Exception):
@@ -83,36 +86,60 @@ class BiblioClient:
     def loans(self):
         result = []
         for data in self._pages("loans", active="true"):
-            obj = self._material(libraryLoan, data)
-            obj.loanDate = _date(data["start"])
-            obj.expireDate = _date(data["end"])
-            # Digital loans cannot be renewed by the physical renewal service.
-            obj.renewAble = False
-            result.append(obj)
+            try:
+                obj = self._material(libraryLoan, data)
+                obj.loanDate = _date(data["start"])
+                obj.expireDate = _date(data["end"])
+                # Digital loans cannot be renewed by the physical renewal service.
+                obj.renewAble = False
+                result.append(obj)
+            except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+                _LOGGER.warning("Skipping malformed Biblo loan")
         return result
 
     def reservations(self):
         waiting, ready = [], []
         for data in self._pages("reservations"):
-            is_ready = bool(data.get("offer_id") and data.get("offer_expires_at"))
-            cls = libraryReservationReady if is_ready else libraryReservation
-            obj = self._material(cls, data)
-            obj.createdDate = _date(data["timestamp"])
-            obj.pickupLibrary = "biblo.dk"
-            obj.queueNumber = data.get("queue_position")
-            if is_ready:
-                obj.pickupDate = _date(data["offer_expires_at"])
-                obj.reservationNumber = data["offer_id"]
-            else:
-                obj.expireDate = _date(data["loan_date"])
+            try:
+                is_ready = bool(data.get("offer_id") and data.get("offer_expires_at"))
+                cls = libraryReservationReady if is_ready else libraryReservation
+                obj = self._material(cls, data)
+                obj.createdDate = _date(data["timestamp"])
+                obj.pickupLibrary = "biblo.dk"
+                obj.queueNumber = data.get("queue_position")
+                if is_ready:
+                    obj.pickupDate = _date(data["offer_expires_at"])
+                    obj.reservationNumber = data["offer_id"]
+                else:
+                    obj.expireDate = _date(data["loan_date"])
+            except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+                _LOGGER.warning("Skipping malformed Biblo reservation")
+                continue
             # Metadata is optional: its outage must not hide a reservation.
             isbn = data["material_id"]
             try:
                 if isbn not in self._metadata:
                     metadata = self._get(f"metadata/{quote(isbn, safe='')}")
+                    materials = metadata["materials"]
+                    if not isinstance(materials, list):
+                        raise BiblioError("Biblio metadata: expected a list")
+                    for material in materials:
+                        if (
+                            not isinstance(material, dict)
+                            or not isinstance(material.get("isbn"), str)
+                            or not isinstance(
+                                material.get("title", ""), (str, type(None))
+                            )
+                            or not isinstance(material.get("author") or [], list)
+                            or not all(
+                                isinstance(author, str)
+                                for author in (material.get("author") or [])
+                            )
+                        ):
+                            raise BiblioError("Biblio metadata: invalid material")
                     if len(self._metadata) >= 500:
                         self._metadata.clear()
-                    self._metadata[isbn] = metadata["materials"]
+                    self._metadata[isbn] = materials
                 for material in self._metadata[isbn]:
                     if material["isbn"] == isbn:
                         obj.title = material.get("title") or obj.title

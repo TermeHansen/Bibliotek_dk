@@ -533,6 +533,29 @@ class Library:
         self._reservations["ereolen"] = waiting
         self._reservations_ready["ereolen"] = ready
 
+    def getRenewableLoanIds(self):
+        """Select current renewable physical loans, including overdue loans.
+
+        Fetch only the authoritative eligibility list, without metadata or
+        Biblo calls. A failed/malformed response must not fall back to the
+        last-good sensor cache when deciding which loans to renew.
+        """
+        res = self._get(URL_LOANS, headers=self.json_header)
+        if res.status_code != 200:
+            raise ValueError(f"Physical loans request failed ({res.status_code})")
+        materials = res.json()
+        if not isinstance(materials, list):
+            raise ValueError("Expected a physical loans list")
+        ids = []
+        for material in materials:
+            if not isinstance(material, dict):
+                raise ValueError("Invalid physical loan entry")
+            if material.get("isRenewable") is True:
+                loan_id = material["loanDetails"]["loanId"]
+                if loan_id not in ids:
+                    ids.append(loan_id)
+        return ids
+
     # Renew one or more physical loans. ``loan_ids`` are the API's ``loanId``
     # values, exposed to users as ``renew_id`` on the loan sensor attributes.
     # Returns a dict mapping each requested id to its renewal status: "renewed"

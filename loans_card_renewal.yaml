@@ -1,0 +1,73 @@
+# Optional interactive alternative to loans_card.yaml.
+# Paste as a Manual dashboard card. Requires auto-entities and
+# template-entity-row, as the existing loans card does.
+# Tap a row marked "Forny" to renew that loan, or use the per-account button.
+# Both actions ask for confirmation. No credentials or entity IDs to configure.
+type: custom:auto-entities
+card:
+  type: entities
+  title: Bibliotekslån
+filter:
+  template: |-
+    {% set types = {'epub': '📜', 'ebook': '📜', 'audiobook': '🎧', 'zip': '🎧', 'podcast': '🎙️', 'bog': '📖', 'paper_book': '📖', 'dvd': '📀', 'billedbog': '🧒', 'tegneserie': '📕'} %}
+    {% set ns = namespace(rows=[]) %}
+    {% for sensor in expand(integration_entities('bibliotek_dk')) %}
+      {% if sensor.attributes.loans is defined
+            and sensor.attributes.address is not defined
+            and has_value(sensor.entity_id) %}
+        {% set loans = sensor.attributes.loans or [] %}
+        {% set overdue = namespace(any=false) %}
+        {% for other in expand(integration_entities('bibliotek_dk')) %}
+          {% if other.attributes.loans_overdue is defined
+                and other.attributes.address is not defined
+                and has_value(other.entity_id)
+                and config_entry_id(other.entity_id) == config_entry_id(sensor.entity_id)
+                and other.attributes.loans_overdue %}
+            {% set overdue.any = true %}
+          {% endif %}
+        {% endfor %}
+        {% set entry_id = config_entry_id(sensor.entity_id) %}
+        {% if entry_id and (loans or overdue.any) %}
+          {% set ns.rows = ns.rows + [{
+            'type': 'section', 'label': sensor.attributes.user
+          }] %}
+            {% set ns.rows = ns.rows + [{
+              'type': 'button',
+              'name': 'Forny alle lån, der kan fornyes',
+              'action_name': 'Forny alle',
+              'icon': 'mdi:book-refresh',
+              'tap_action': {
+                'action': 'perform-action',
+                'perform_action': 'bibliotek_dk.renew_all_loans',
+                'data': {'config_entry_id': entry_id},
+                'confirmation': {
+                  'text': 'Forny alle fysiske lån, som biblioteket tillader, for '
+                    ~ sensor.attributes.user ~ '?'
+                }
+              }
+            }] %}
+          {% for book in loans %}
+            {% set due = as_datetime(book.expire_date, none) %}
+            {% set due_text = time_until(due) if due else 'Afleveringsdato ukendt' %}
+            {% set can_renew = book.renewable == true and book.renew_id is not none %}
+            {% set action = {
+              'action': 'perform-action',
+              'perform_action': 'bibliotek_dk.renew_loans',
+              'data': {'config_entry_id': entry_id, 'loan_ids': [book.renew_id]},
+              'confirmation': {'text': 'Forny ' ~ (book.title | default('Titel ukendt', true)) ~ '?'}
+            } if can_renew else {'action': 'none'} %}
+            {% set ns.rows = ns.rows + [{
+              'type': 'custom:template-entity-row',
+              'entity': sensor.entity_id,
+              'name': types.get(book.type | default(''), '📖') ~ ' ' ~ (book.title | default('Titel ukendt', true)),
+              'secondary': (book.creators or '') ~ ' · ' ~ due_text,
+              'state': 'Forny' if can_renew else due_text,
+              'icon': 'mdi:book-refresh' if can_renew else 'mdi:book-open-page-variant',
+              'image': book.cover,
+              'tap_action': action
+            }] %}
+          {% endfor %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.rows }}

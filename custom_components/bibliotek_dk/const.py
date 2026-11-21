@@ -54,6 +54,7 @@ URL_FEES = f"{URL_FBS_BASE}/external/agencyid/patron/patronid/fees/v2"
 URL_PUBHUB_BASE = "https://pubhub-openplatform.dbc.dk/v1"
 URL_BRANCH_GRAPHQL = "https://bibliotek.dk/api/bibdk21/graphql"
 
+
 # The Biblo app's API (DDF/BFF). Its record endpoint replaces the scraped
 # GraphQL details lookup and needs no user session (plan 7.9). The app-type,
 # app-version and installation-id headers are client hints the gateway
@@ -85,6 +86,7 @@ MUNICIPALITY_ALIASES = {
 
 # HA service to renew one or more physical loans.
 SERVICE_RENEW_LOANS = "renew_loans"
+SERVICE_RENEW_ALL_LOANS = "renew_all_loans"
 ATTR_LOAN_IDS = "loan_ids"
 
 

@@ -29,7 +29,11 @@ Read requests send the existing login.bib.dk user bearer token:
 Loan and reservation pagination follows the returned cursor. A failed or
 malformed page keeps the previous complete source list. Metadata failure
 keeps the reservation with its ISBN as a fallback title. Metadata is cached
-with a 500-entry bound. Physical library requests and renewal are unchanged.
+with a 500-entry bound. Malformed individual loans/reservations are skipped
+with a warning after every page has been fetched; valid items still update
+(see `IMPROVEMENT_PLAN.md`, section 7.2). Metadata is validated before caching;
+invalid responses are retried on the next lookup (section 3).
+Physical library requests and renewal are unchanged.
 
 ## Quotas and limitations
 
@@ -51,13 +55,25 @@ accept an offer, or renew digital materials.
 
 The loan attribute names remain unchanged. Biblio material types include
 `audiobook` and `podcast`; e-books are mapped to the existing `epub` value.
-The `podcast` value was inferred from the live dashboard's unknown-type error;
-it was not independently confirmed from a saved adapter payload and is not
-in the documented enum. Unknown types are preserved. The general sensor's
+The `podcast` value was initially inferred from the dashboard's unknown-type
+error and was subsequently confirmed in authenticated, read-only adapter
+responses from Sønderborg on 2026-11-20. The adapter schema referenced below
+does not list it in its material-type enum. A contributor also confirmed
+`PODCASTS` in `MaterialTypeCategory` in the separate Biblo app API; see the
+[PR #15 discussion](https://github.com/TermeHansen/Bibliotek_dk/pull/15#issuecomment-7035013141).
+The two APIs use different type names; the app enum does not define the
+adapter's response format. Unknown types are preserved. The general sensor's
 `other_digital_loans` counts everything except `epub` and `audiobook`, including
 `podcast` and `paper_book`, without assigning them to an unsupported quota.
 For Biblo, `ebooks + audiobooks + other_digital_loans` equals the digital loan
 count; the loans sensor also includes physical loans.
+
+A confirmed podcast type does not establish whether a loan consumes quota.
+Read-only checks found active podcasts with zero reported podcast quota usage.
+Use the provider's quota usage values when available; do not infer consumption
+from active-loan counts or assume all podcasts are exempt. Expanded quota
+attributes and dashboard usage tables are being developed separately in PR #19.
+
 Old eReolen templates may only recognize `zip` for audio. A template such as
 `types[book.type] + book.title` fails for an unknown type and can hide the
 entire list. Add the new types to the icon map and use a fallback lookup,
