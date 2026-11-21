@@ -1,29 +1,19 @@
 renew_all_loans:
-  name: Renew all eligible loans
-  description: Renew all currently renewable physical loans for one library account. Digital loans are excluded. Eligibility is checked again when called.
   fields:
     config_entry_id:
-      name: Config entry
-      description: The Bibliotek configuration entry whose physical loans should be renewed.
       required: true
       selector:
         config_entry:
           integration: bibliotek_dk
 
 renew_loans:
-  name: Renew loans
-  description: Renew one or more physical loans for a library account.
   fields:
     config_entry_id:
-      name: Config entry
-      description: The Bibliotek configuration entry the loans belong to.
       required: true
       selector:
         config_entry:
           integration: bibliotek_dk
     loan_ids:
-      name: Loan ids
-      description: The loan ids to renew (the renew_id attribute on the loans sensor).
       required: true
       example: "1234567"
       selector:

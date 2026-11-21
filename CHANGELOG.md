@@ -6,6 +6,10 @@
 
 ### Changes
 
+* Keep action and field labels in translations only; services.yaml contains
+  schemas. Add Jinja2/PyYAML to the Conda test environment, matching uv.
+* Raise the declared HA minimum to 2024.11.0 for the dashboard time_since /
+  time_until helpers; integration behavior is otherwise unchanged.
 * Keep bulk renewal available for overdue-only accounts. Guard overdue and
   pickup rows against missing metadata and unavailable sensors; render the
   shipped dashboard templates in regression tests.

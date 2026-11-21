@@ -8,6 +8,8 @@ dependencies:
   - pytest
   - pytest-asyncio
   - freezegun
+  - jinja2
+  - pyyaml
   - python-dateutil
   - requests
   - ruff

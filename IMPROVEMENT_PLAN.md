@@ -148,6 +148,9 @@ Fixtures are synthetic/anonymised — no CPR, PIN, or tokens.
 - **No `hacs.json` `version`** — fine (HACS reads `manifest.json`), but confirm the
   `homeassistant` min version if you adopt newer HA APIs. — DONE (0.8.0):
   `hacs.json` declares `"homeassistant": "2024.1.0"`.
+  Updated in 0.10.0 to 2024.11.0 for the example dashboard’s `time_since()` /
+  `time_until()` functions. This is the declared minimum, not a claim that
+  every custom-card version has been tested on that HA release.
 - **README** is decent but the "still in development" note and the sensor list
   predate eReolen/debts options. Refresh it and document the `show_*` options.
   — DONE (0.7.0).
