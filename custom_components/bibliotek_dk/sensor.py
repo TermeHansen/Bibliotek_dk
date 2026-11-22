@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
     DataUpdateCoordinator,
     UpdateFailed,
 )
@@ -130,7 +131,7 @@ def _legacy_md5_unique_id(string: str) -> str:
     return hashlib.md5(string.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
-class BibliotekBaseSensor(SensorEntity):
+class BibliotekBaseSensor(CoordinatorEntity, SensorEntity):
     """Shared coordinator wiring for all Bibliotek sensors.
 
     Subclasses set ``self._name`` and ``self._unique_id`` in ``__init__`` (after
@@ -139,7 +140,7 @@ class BibliotekBaseSensor(SensorEntity):
     """
 
     def __init__(self, coordinator: DataUpdateCoordinator) -> None:
-        self.coordinator = coordinator
+        super().__init__(coordinator)
 
     @property
     def name(self):
@@ -148,26 +149,6 @@ class BibliotekBaseSensor(SensorEntity):
     @property
     def unique_id(self):
         return self._unique_id
-
-    @property
-    def should_poll(self):
-        """No need to poll. Coordinator notifies entity of updates."""
-        return False
-
-    @property
-    def available(self):
-        """Return if entity is available."""
-        return self.coordinator.last_update_success
-
-    async def async_update(self):
-        """Update the entity. Only used by the generic entity update service."""
-        await self.coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
 
 
 class BibliotekCountSensor(BibliotekBaseSensor):

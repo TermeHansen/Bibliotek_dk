@@ -6,7 +6,6 @@
       "reconfigure_successful": "Genkonfiguration gennemført"
     },
     "error": {
-      "gatewayf": "Din kommune bruger WAYF som login og understøttes ikke af integrationen",
       "user_exist": "Brugeren er allerede oprettet",
       "locked_entries_exist": "Lås eksisterende adgangskodebeskyttede konti for dette bibliotek op, før du tilføjer eller ændrer konti",
       "cannot_connect": "Problem med forbindelsen",

@@ -218,7 +218,7 @@ async def test_locked_passphrase_entry_blocks_same_host_keyfile_add(
     """Case 1: Locked entry on same host blocks keyfile add without calling login."""
     login_counter = {"calls": 0}
     _patch_library(monkeypatch, login_counter)
-    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: dict(LIBRARIES))
     monkeypatch.setattr(
         config_flow, "municipalityFromCoor", lambda *_args: "Test Kommune"
     )
@@ -245,7 +245,7 @@ async def test_locked_passphrase_entry_blocks_same_host_different_passphrase(
     """Case 2: Locked entry on same host blocks add with a different passphrase."""
     login_counter = {"calls": 0}
     _patch_library(monkeypatch, login_counter)
-    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: dict(LIBRARIES))
     monkeypatch.setattr(
         config_flow, "municipalityFromCoor", lambda *_args: "Test Kommune"
     )
@@ -274,7 +274,7 @@ async def test_locked_passphrase_entry_detects_duplicate_with_matching_or_escrow
     """Case 3: Matching passphrase or active RAM escrow detects duplicate UserExist."""
     login_counter = {"calls": 0}
     _patch_library(monkeypatch, login_counter)
-    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: dict(LIBRARIES))
     monkeypatch.setattr(
         config_flow, "municipalityFromCoor", lambda *_args: "Test Kommune"
     )
@@ -390,7 +390,7 @@ async def test_reconfigure_self_unlocked_bypass_and_other_locked_blocked(
     """Case 7: Self-reconfigure on locked entry succeeds; another locked entry on same host blocks."""
     login_counter = {"calls": 0}
     _patch_library(monkeypatch, login_counter)
-    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: dict(LIBRARIES))
 
     phrase = _secret("self-locked")
     locked_self = _make_passphrase_entry(

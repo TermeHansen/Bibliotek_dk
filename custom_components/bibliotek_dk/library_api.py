@@ -17,7 +17,12 @@ from requests.exceptions import RequestException
 from .biblio import BiblioClient, BiblioError
 
 from .const import (
+    DDF_API_KEY,
+    DDF_APP_TYPE,
+    DDF_APP_VERSION,
+    DDF_INSTALLATION_ID,
     URL_BRANCH_GRAPHQL,
+    URL_DDF_BASE,
     URL_FEES,
     URL_LOANS,
     URL_LOANS_RENEW,
@@ -25,7 +30,6 @@ from .const import (
     URL_PUBHUB_BASE,
     URL_RESERVATIONS,
     branch_query,
-    details_query,
 )
 from .models import (
     libraryDebt,
@@ -39,6 +43,21 @@ from .transport import REQUEST_TIMEOUT, LibraryTransport
 
 # Maximum number of entries kept in the material-details cache.
 DETAILS_CACHE_MAX = 500
+
+# FBS reports a physical loan's record as a bare faust ("39134543"), while the
+# Biblo API wants a full record id. The national bibliography's fausts all live
+# under this basis, which is what the old GraphQL details lookup resolved to.
+FAUST_BASIS = "870970-basis:"
+
+
+def _recordId(faust):
+    """Expand a bare faust into the record id the Biblo API expects.
+
+    An id that already carries a basis (``870970-basis:123``) is left alone, so
+    a caller holding a full id keeps working.
+    """
+    faust = str(faust)
+    return faust if ":" in faust else f"{FAUST_BASIS}{faust}"
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -190,6 +209,22 @@ class Library:
         return self._transport.json_header
 
     @property
+    def ddf_header(self):
+        """Headers for the Biblo app API: client hints, no bearer token.
+
+        The record endpoint is anonymous, so this deliberately carries no
+        ``Authorization`` header — it must not depend on a patron session.
+        """
+        return {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate",
+            "x-app": DDF_APP_VERSION,
+            "x-app-type": DDF_APP_TYPE,
+            "x-installation-id": DDF_INSTALLATION_ID,
+            "x-api-key": DDF_API_KEY,
+        }
+
+    @property
     def user_token(self):
         return self._transport.user_token
 
@@ -255,21 +290,36 @@ class Library:
         if faust in self._details:
             return self._details[faust]
         data = {}
-        params = {"query": details_query, "variables": {"faust": faust}}
-        url = self.urls.get(
-            "data-fbi-global-base-url",
-            "https://temp.fbi-api.dbc.dk/next-present/graphql",
+        res = self._get(
+            f"{URL_DDF_BASE}/v1/agencies/{self.agency}/records/{_recordId(faust)}",
+            headers=self.ddf_header,
         )
-        res = self._post(url, headers=self.json_header, json=params)
         if res.status_code == 200:
-            data = res.json()["data"]
-            # Bound the cache so it does not grow for the process lifetime.
-            if len(self._details) >= DETAILS_CACHE_MAX:
-                self._details.clear()
-            self._details[faust] = data
+            try:
+                data = res.json()["data"]
+            except (KeyError, TypeError, ValueError) as err:
+                data = None
+                err_msg = err
+            else:
+                err_msg = None
+            # A 200 carrying `{"data": null}` is a failed lookup, not a hit: the
+            # models iterate the payload, so caching a non-dict would both blank
+            # the details and poison the cache for the rest of the process.
+            if not isinstance(data, dict):
+                _LOGGER.warning(
+                    f"({self.user.log_label}) Unexpected record payload for '{faust}': "
+                    f"{err_msg or data!r}"
+                )
+                data = {}
+            else:
+                # Bound the cache so it does not grow for the process lifetime.
+                if len(self._details) >= DETAILS_CACHE_MAX:
+                    self._details.clear()
+                self._details[faust] = data
         else:
             _LOGGER.warning(
-                f"({self.user.log_label}) Error getting details for material: '{faust}' ({res.status_code})"
+                f"({self.user.log_label}) Error getting details for material: "
+                f"'{faust}' ({res.status_code})"
             )
         return data
 

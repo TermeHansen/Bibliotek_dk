@@ -282,7 +282,7 @@ async def test_config_flow_masks_sensitive_inputs_with_password_selector(
 ):
     from homeassistant.helpers import selector
 
-    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: dict(LIBRARIES))
     monkeypatch.setattr(
         config_flow, "municipalityFromCoor", lambda *_args: "Test Kommune"
     )
@@ -643,7 +643,7 @@ async def test_reconfigure_switches_encryption_modes(tmp_path: Path, monkeypatch
             return "https://test.bib.dk/logout"
 
     monkeypatch.setattr(config_flow, "Library", FakeLibrary)
-    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: dict(LIBRARIES))
 
     hass = _FakeHass(tmp_path)
     info = await config_flow.validate_input(hass, _user_payload(), LIBRARIES)
@@ -852,7 +852,7 @@ async def test_config_flow_uses_ram_escrow_passphrase_without_persisting_it(
             return "https://test.bib.dk/logout"
 
     monkeypatch.setattr(config_flow, "Library", FakeLibrary)
-    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: (LIBRARIES, {}))
+    monkeypatch.setattr(config_flow, "refreshLibraries", lambda: dict(LIBRARIES))
     monkeypatch.setattr(
         config_flow, "municipalityFromCoor", lambda *_args: "Test Kommune"
     )

@@ -47,7 +47,6 @@
       }
     },
     "error": {
-      "gatewayf": "[%key:common::config_flow::error::gatewayf%]",
       "user_exist": "[%key:common::config_flow::error::user_exist%]",
       "locked_entries_exist": "Unlock existing passphrase-protected accounts for this library before adding or changing accounts",
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
