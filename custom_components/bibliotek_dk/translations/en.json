@@ -1,12 +1,17 @@
 {
   "config": {
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Device is already configured",
+      "reauth_successful": "Re-authentication was successful",
+      "reconfigure_successful": "Re-configuration was successful"
     },
     "error": {
       "user_exist": "User exist",
+      "locked_entries_exist": "Unlock existing passphrase-protected accounts for this library before adding or changing accounts",
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
+      "invalid_passphrase": "Invalid encryption passphrase",
+      "decryption_failed": "Failed to decrypt stored credentials",
       "unknown": "Unexpected error"
     },
     "step": {
@@ -16,24 +21,56 @@
           "municipality": "Municipality",
           "user_id": "CPR or library number",
           "pincode": "PIN code",
-          "update_interval": "Update interval in minuts",
+          "use_escrow_passphrase": "Use unlocked RAM escrow passphrase",
+          "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)",
+          "update_interval": "Update interval in minutes",
           "show_loans": "Show loans",
           "show_eloans": "Show loans from Biblo / eReolen",
-          "show_debts": "Show depts",
-          "show_reservations": "Show reservations"
+          "show_debts": "Show debts",
+          "show_reservations": "Show reservations",
+          "expose_personal_info": "Expose address, phone, and email on sensor attributes"
+        },
+        "data_description": {
+          "use_escrow_passphrase": "Encrypt with the active RAM escrow passphrase (provided via bibliotek_dk.unlock) without typing or storing the passphrase.",
+          "encryption_passphrase": "If set, credentials are encrypted with Scrypt + AES-256-GCM and nothing is written to disk. You will be prompted to unlock after every Home Assistant restart.",
+          "expose_personal_info": "Off by default to keep home address, phone number, and email out of the Home Assistant recorder."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Unlock or re-authenticate Bibliotek",
+        "description": "Enter your encryption passphrase to unlock credentials in memory, or re-enter your library credentials.",
+        "data": {
+          "encryption_passphrase": "Encryption passphrase",
+          "user_id": "CPR or library number",
+          "pincode": "PIN code"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Bibliotek",
+        "description": "Update your library credentials or switch between automatic keyfile and passphrase encryption.",
+        "data": {
+          "municipality": "Municipality",
+          "user_id": "CPR or library number",
+          "pincode": "PIN code",
+          "use_escrow_passphrase": "Use unlocked RAM escrow passphrase",
+          "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)"
+        },
+        "data_description": {
+          "use_escrow_passphrase": "Encrypt with the active RAM escrow passphrase (provided via bibliotek_dk.unlock) without typing or storing the passphrase."
         }
       }
     }
   },
   "options": {
-    "step":{
+    "step": {
       "init": {
         "data": {
-          "update_interval": "Update interval in minuts",
+          "update_interval": "Update interval in minutes",
           "show_loans": "Show loans",
           "show_eloans": "Show loans from Biblo / eReolen",
-          "show_debts": "Show depts",
-          "show_reservations": "Show reservations"
+          "show_debts": "Show debts",
+          "show_reservations": "Show reservations",
+          "expose_personal_info": "Expose address, phone, and email on sensor attributes"
         }
       }
     }
@@ -50,6 +87,20 @@
         "loan_ids": {
           "name": "Loan ids",
           "description": "The loan ids to renew (the renew_id attribute on the loans sensor)."
+        }
+      }
+    },
+    "unlock": {
+      "name": "Unlock encrypted accounts",
+      "description": "Supply an encryption passphrase in RAM to unlock passphrase-protected Bibliotek accounts and act as the active RAM escrow for new accounts.",
+      "fields": {
+        "encryption_passphrase": {
+          "name": "Encryption passphrase",
+          "description": "Passphrase used to encrypt and unlock protected accounts in RAM."
+        },
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Optional Bibliotek configuration entry to target exclusively."
         }
       }
     }

@@ -17,7 +17,7 @@ filter:
   template: |-
     {% set sensors = states.sensor
          | selectattr('attributes.loans', 'defined')
-         | rejectattr('attributes.address', 'defined')
+         | rejectattr('attributes.sensor_type', 'defined')
          | selectattr('state', 'ne', '0')
          | map(attribute='entity_id')
          | list %}
