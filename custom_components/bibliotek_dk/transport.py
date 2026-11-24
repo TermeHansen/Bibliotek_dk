@@ -63,7 +63,7 @@ class LibraryTransport:
 
     def _debug(self, msg):
         # Gated by HA logging config: set this logger to DEBUG to see it.
-        _LOGGER.debug(f"({self.user.date}) {msg}")
+        _LOGGER.debug(f"({self.user.log_label}) {msg}")
 
     def _get(self, url, **kwargs):
         kwargs.setdefault("timeout", REQUEST_TIMEOUT)
@@ -81,7 +81,7 @@ class LibraryTransport:
 
             res = self._get(url)
             if res.status_code != 200:
-                _LOGGER.error(f"({self.user.date}) Failed to login to {url}")
+                _LOGGER.error(f"({self.user.log_label}) Failed to login to {url}")
                 return
 
             soup = BS(res.text, "html.parser")
@@ -119,7 +119,7 @@ class LibraryTransport:
         res = self._get(f"{self.host}/dpl-react/user-tokens")
         if res.status_code != 200:
             _LOGGER.warning(
-                f"({self.user.date}) Error fetching user tokens ({res.status_code})"
+                f"({self.user.log_label}) Error fetching user tokens ({res.status_code})"
             )
             return
         # The endpoint returns a JSON object with a "library" token (always)
@@ -138,7 +138,7 @@ class LibraryTransport:
         self._user_token = ""
         self._user_token_exp = None
         _LOGGER.warning(
-            f"({self.user.date}) Login did not yield a user token "
+            f"({self.user.log_label}) Login did not yield a user token "
             "(check user id and pincode)"
         )
 

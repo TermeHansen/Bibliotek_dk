@@ -24,6 +24,10 @@ from custom_components.bibliotek_dk.const import (
     DOMAIN,
     UPDATE_INTERVAL,
 )
+from custom_components.bibliotek_dk.crypto import (
+    ENC_PREFIX_KEYFILE,
+    decrypt_entry_credentials,
+)
 
 
 class FakeResponse:
@@ -56,11 +60,22 @@ class FakeSession:
         return self._response
 
 
+class _FakeConfig:
+    """Minimal hass.config exposing .path() for keyfile resolution."""
+
+    def __init__(self, root):
+        self._root = root
+
+    def path(self, *parts):
+        return str(self._root.joinpath(*parts))
+
+
 class FakeHass:
     """Fake HomeAssistant exposing just what validate_input needs."""
 
-    def __init__(self, data=None):
+    def __init__(self, tmp_path=None, data=None):
         self.data = data or {}
+        self.config = _FakeConfig(tmp_path) if tmp_path is not None else None
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)
@@ -86,34 +101,46 @@ def _data(**overrides):
     return base
 
 
+class _FakeSessionClose:
+    def close(self):
+        return None
+
+
 @pytest.mark.asyncio
-async def test_validate_input_success(monkeypatch):
+async def test_validate_input_success(tmp_path, monkeypatch):
     class FakeLibrary:
         def __init__(self, *args, **kwargs):
             self.user = type("U", (), {"userId": "12345678"})()
+            self.session = _FakeSessionClose()
 
         def login(self):
             return "https://test.bib.dk/logout"
 
     monkeypatch.setattr(config_flow, "Library", FakeLibrary)
+    hass = FakeHass(tmp_path)
 
-    info = await config_flow.validate_input(FakeHass(), _data(), LIBRARIES)
+    info = await config_flow.validate_input(hass, _data(), LIBRARIES)
 
     assert info["title"] == "Test Kommune (Me)"
     assert info["data"][CONF_HOST] == "https://test.bib.dk"
     assert info["data"][CONF_AGENCY] == "710100"
-    # Non-digit characters are stripped from user id and pincode.
-    assert info["data"][CONF_USER_ID] == "12345678"
-    assert info["data"][CONF_PINCODE] == "0011"
+    assert info["data"][CONF_USER_ID].startswith(ENC_PREFIX_KEYFILE)
+    assert info["data"][CONF_PINCODE].startswith(ENC_PREFIX_KEYFILE)
+    # Non-digit characters are stripped before encryption.
+    assert decrypt_entry_credentials(hass, info["data"], "710100") == (
+        "12345678",
+        "0011",
+    )
     # A falsy interval falls back to the default.
     assert info["data"][CONF_UPDATE_INTERVAL] == UPDATE_INTERVAL
 
 
 @pytest.mark.asyncio
-async def test_validate_input_title_without_name(monkeypatch):
+async def test_validate_input_title_without_name(tmp_path, monkeypatch):
     class FakeLibrary:
         def __init__(self, *args, **kwargs):
             self.user = type("U", (), {"userId": "12345678"})()
+            self.session = _FakeSessionClose()
 
         def login(self):
             return "https://test.bib.dk/logout"
@@ -121,16 +148,17 @@ async def test_validate_input_title_without_name(monkeypatch):
     monkeypatch.setattr(config_flow, "Library", FakeLibrary)
 
     info = await config_flow.validate_input(
-        FakeHass(), _data(**{CONF_NAME: ""}), LIBRARIES
+        FakeHass(tmp_path), _data(**{CONF_NAME: ""}), LIBRARIES
     )
     assert info["title"] == "Test Kommune"
 
 
 @pytest.mark.asyncio
-async def test_validate_input_invalid_auth(monkeypatch):
+async def test_validate_input_invalid_auth(tmp_path, monkeypatch):
     class FakeLibrary:
         def __init__(self, *args, **kwargs):
             self.user = type("U", (), {"userId": "12345678"})()
+            self.session = _FakeSessionClose()
 
         def login(self):
             return ""
@@ -138,11 +166,11 @@ async def test_validate_input_invalid_auth(monkeypatch):
     monkeypatch.setattr(config_flow, "Library", FakeLibrary)
 
     with pytest.raises(config_flow.InvalidAuth):
-        await config_flow.validate_input(FakeHass(), _data(), LIBRARIES)
+        await config_flow.validate_input(FakeHass(tmp_path), _data(), LIBRARIES)
 
 
 @pytest.mark.asyncio
-async def test_validate_input_duplicate_user(monkeypatch):
+async def test_validate_input_duplicate_user(tmp_path, monkeypatch):
     existing = type(
         "Existing",
         (),
@@ -151,7 +179,7 @@ async def test_validate_input_duplicate_user(monkeypatch):
             "host": "https://test.bib.dk",
         },
     )()
-    hass = FakeHass(data={DOMAIN: {"entry1": existing}})
+    hass = FakeHass(tmp_path, data={DOMAIN: {"entry1": existing}})
 
     with pytest.raises(config_flow.UserExist):
         await config_flow.validate_input(hass, _data(), LIBRARIES)

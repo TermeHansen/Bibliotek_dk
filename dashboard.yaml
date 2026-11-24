@@ -9,7 +9,7 @@ views:
       {# CHANGE BELOW #}
       {% set libraryUsers = states.sensor
         | selectattr('attributes.reservations', 'defined')
-        | selectattr('attributes.address', 'defined')
+        | selectattr('attributes.sensor_type', 'defined')
         | map(attribute='entity_id')
         | list %}
       {% set headers = ['', 'Titel', 'Type', 'Udløber', 'Bibliotek'] %}
@@ -29,7 +29,7 @@ views:
       {% if accounts is not defined %}
         {% set ns = namespace(accounts=[]) %}
         {% for s in expand(integration_entities('bibliotek_dk')) %}
-          {% if s.attributes.debts is defined and s.attributes.address is not defined %}
+          {% if s.attributes.debts is defined and s.attributes.sensor_type is not defined %}
             {% set ns.accounts = ns.accounts + [{
               'user': s.attributes.user,
               'total': s.state | float(0),
@@ -69,7 +69,7 @@ views:
         {% set ns = namespace(rows=[]) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
           {% if sensor.attributes.loans_overdue is defined
-                and sensor.attributes.address is not defined
+                and sensor.attributes.sensor_type is not defined
                 and has_value(sensor.entity_id) %}
             {% set books = sensor.attributes.loans_overdue or [] %}
             {% if books %}
@@ -99,7 +99,7 @@ views:
       content: |-
         {% set ns = namespace(count=0, unavailable=false) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
-          {% if sensor.attributes.loans_overdue is defined and sensor.attributes.address is not defined %}
+          {% if sensor.attributes.loans_overdue is defined and sensor.attributes.sensor_type is not defined %}
             {% set ns.count = ns.count + 1 %}
             {% if not has_value(sensor.entity_id) %}{% set ns.unavailable = true %}{% endif %}
           {% endif %}
@@ -115,7 +115,7 @@ views:
           {% set source = namespace(accounts=[]) %}
           {% for sensor in expand(integration_entities('bibliotek_dk')) %}
             {% if sensor.attributes.reservations is defined
-                  and sensor.attributes.address is not defined
+                  and sensor.attributes.sensor_type is not defined
                   and has_value(sensor.entity_id) %}
               {% set source.accounts = source.accounts + [{
                 'user': sensor.attributes.user,
@@ -162,7 +162,7 @@ views:
       content: |-
         {% set ns = namespace(count=0, unavailable=false) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
-          {% if sensor.attributes.reservations is defined and sensor.attributes.address is not defined %}
+          {% if sensor.attributes.reservations is defined and sensor.attributes.sensor_type is not defined %}
             {% set ns.count = ns.count + 1 %}
             {% if not has_value(sensor.entity_id) %}{% set ns.unavailable = true %}{% endif %}
           {% endif %}
@@ -178,7 +178,7 @@ views:
         {% set ns = namespace(rows=[]) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
           {% if sensor.attributes.reservations_ready is defined
-                and sensor.attributes.address is not defined
+                and sensor.attributes.sensor_type is not defined
                 and has_value(sensor.entity_id) %}
             {% set books = sensor.attributes.reservations_ready or [] %}
             {% if books %}
@@ -208,7 +208,7 @@ views:
       content: |-
         {% set ns = namespace(count=0, unavailable=false) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
-          {% if sensor.attributes.reservations_ready is defined and sensor.attributes.address is not defined %}
+          {% if sensor.attributes.reservations_ready is defined and sensor.attributes.sensor_type is not defined %}
             {% set ns.count = ns.count + 1 %}
             {% if not has_value(sensor.entity_id) %}{% set ns.unavailable = true %}{% endif %}
           {% endif %}
@@ -224,13 +224,13 @@ views:
         {% set ns = namespace(rows=[]) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
           {% if sensor.attributes.loans is defined
-                and sensor.attributes.address is not defined
+                and sensor.attributes.sensor_type is not defined
                 and has_value(sensor.entity_id) %}
             {% set loans = sensor.attributes.loans or [] %}
             {% set overdue = namespace(any=false) %}
             {% for other in expand(integration_entities('bibliotek_dk')) %}
               {% if other.attributes.loans_overdue is defined
-                    and other.attributes.address is not defined
+                    and other.attributes.sensor_type is not defined
                     and has_value(other.entity_id)
                     and config_entry_id(other.entity_id) == config_entry_id(sensor.entity_id)
                     and other.attributes.loans_overdue %}
@@ -288,7 +288,7 @@ views:
       content: |-
         {% set ns = namespace(count=0, unavailable=false) %}
         {% for sensor in expand(integration_entities('bibliotek_dk')) %}
-          {% if sensor.attributes.loans is defined and sensor.attributes.address is not defined %}
+          {% if sensor.attributes.loans is defined and sensor.attributes.sensor_type is not defined %}
             {% set ns.count = ns.count + 1 %}
             {% if not has_value(sensor.entity_id) %}{% set ns.unavailable = true %}{% endif %}
           {% endif %}

@@ -11,11 +11,28 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_NAME, CONF_PINCODE, CONF_USER_ID, DOMAIN
+from .const import (
+    CONF_ENCRYPTION_MODE,
+    CONF_ENCRYPTION_PASSPHRASE,
+    CONF_NAME,
+    CONF_PINCODE,
+    CONF_USER_ID,
+    DOMAIN,
+)
 
-# Credentials plus the configured account name and the patron's real name, so a
-# shared diagnostics file does not leak the user's identity.
-TO_REDACT = {CONF_NAME, CONF_PINCODE, CONF_USER_ID, "name"}
+# Credentials plus personal identity/contact attributes, so a shared diagnostics
+# file never leaks credentials or patron PII.
+TO_REDACT = {
+    CONF_NAME,
+    CONF_PINCODE,
+    CONF_USER_ID,
+    CONF_ENCRYPTION_PASSPHRASE,
+    "name",
+    "address",
+    "phone",
+    "mail",
+    "unique_id",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -26,9 +43,17 @@ async def async_get_config_entry_diagnostics(
     user = library.user if library is not None else None
 
     data = {
-        "entry": {**entry.data, **entry.options},
+        "encryption_mode": entry.data.get(CONF_ENCRYPTION_MODE, "plaintext"),
+        "entry": {
+            "unique_id": getattr(entry, "unique_id", None),
+            **entry.data,
+            **entry.options,
+        },
         "account": {
             "name": getattr(user, "name", None),
+            "address": getattr(user, "address", None),
+            "phone": getattr(user, "phone", None),
+            "mail": getattr(user, "mail", None),
             "pickup_library": getattr(user, "pickupLibrary", None),
             "counts": {
                 "loans": len(getattr(user, "loans", []) or []),

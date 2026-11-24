@@ -186,3 +186,46 @@ def test_individual_confirmation_keeps_title_fallback_and_correct_id():
     row = next(row for row in result if row["type"] == "custom:template-entity-row")
     assert row["tap_action"]["data"]["loan_ids"] == [42]
     assert row["tap_action"]["confirmation"]["text"] == "Forny Titel ukendt?"
+
+
+@pytest.mark.parametrize("source", ["dashboard", "standalone"])
+@pytest.mark.parametrize("expose_contact", [False, True])
+def test_main_sensor_without_personal_info_is_not_treated_as_loan_list(
+    source, expose_contact
+):
+    card = (
+        cards()["Bibliotekslån"]
+        if source == "dashboard"
+        else yaml.safe_load((ROOT / "loans_card_renewal.yaml").read_text())
+    )
+    main = sensor("loans", 1)
+    main.entity_id = "sensor.main_account_a"
+    main.attributes.update(
+        sensor_type="main",
+        loans_overdue=0,
+        reservations=0,
+        reservations_ready=0,
+        debts=0,
+    )
+    if expose_contact:
+        main.attributes["address"] = "Synthetic address"
+    result = render(card["filter"]["template"], [main, sensor("loans", [loan()])])
+    assert len([row for row in result if row["type"] == "button"]) == 1
+    assert (
+        len([row for row in result if row["type"] == "custom:template-entity-row"]) == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "title,kind",
+    [
+        ("Bibliotekslån overskredet", "loans_overdue"),
+        ("Biblioteksreserveringer til afhentning", "reservations_ready"),
+        ("Biblioteksreserveringer", "reservations"),
+    ],
+)
+def test_main_sensor_counts_do_not_leak_into_material_lists(title, kind):
+    main = sensor(kind, 1)
+    main.entity_id = "sensor.main_account_a"
+    main.attributes["sensor_type"] = "main"
+    assert render(cards()[title]["filter"]["template"], [main]) == []

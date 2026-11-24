@@ -19,3 +19,16 @@ renew_loans:
       selector:
         text:
           multiple: true
+
+unlock:
+  fields:
+    encryption_passphrase:
+      required: true
+      selector:
+        text:
+          type: password
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: bibliotek_dk

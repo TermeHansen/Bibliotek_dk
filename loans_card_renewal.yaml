@@ -13,13 +13,13 @@ filter:
     {% set ns = namespace(rows=[]) %}
     {% for sensor in expand(integration_entities('bibliotek_dk')) %}
       {% if sensor.attributes.loans is defined
-            and sensor.attributes.address is not defined
+            and sensor.attributes.sensor_type is not defined
             and has_value(sensor.entity_id) %}
         {% set loans = sensor.attributes.loans or [] %}
         {% set overdue = namespace(any=false) %}
         {% for other in expand(integration_entities('bibliotek_dk')) %}
           {% if other.attributes.loans_overdue is defined
-                and other.attributes.address is not defined
+                and other.attributes.sensor_type is not defined
                 and has_value(other.entity_id)
                 and config_entry_id(other.entity_id) == config_entry_id(sensor.entity_id)
                 and other.attributes.loans_overdue %}
