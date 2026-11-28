@@ -6,10 +6,10 @@
       "reconfigure_successful": "Genkonfiguration gennemført"
     },
     "error": {
-      "user_exist": "Brugeren er allerede oprettet",
+      "user_exist": "Denne bibliotekskonto er allerede oprettet",
       "locked_entries_exist": "Lås eksisterende adgangskodebeskyttede konti for dette bibliotek op, før du tilføjer eller ændrer konti",
       "cannot_connect": "Problem med forbindelsen",
-      "invalid_auth": "Forkert id eller pin kode",
+      "invalid_auth": "Forkert lånernummer, CPR-nummer eller pinkode",
       "invalid_passphrase": "Ugyldig krypteringsadgangskode",
       "decryption_failed": "Kunne ikke dekryptere gemte legitimationsoplysninger",
       "unknown": "Ukendt fejl"
@@ -19,44 +19,45 @@
         "data": {
           "name": "Navn på bruger",
           "municipality": "Kommune",
-          "user_id": "CPR eller lånernummer",
-          "pincode": "PIN kode",
-          "use_escrow_passphrase": "Brug oplåst RAM-escrow adgangskode",
-          "encryption_passphrase": "Valgfri krypteringsadgangskode (lad stå tom for automatisk nøglefil)",
+          "user_id": "Lånernummer eller CPR-nummer",
+          "pincode": "Pinkode",
+          "use_escrow_passphrase": "Brug en allerede oplåst krypteringsadgangskode",
+          "encryption_passphrase": "Krypteringsadgangskode (valgfri)",
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
-          "show_eloans": "Vis lån fra Biblo / eReolen",
+          "show_eloans": "Vis digitale lån (Biblo / eReolen)",
           "show_debts": "Vis gebyrer",
           "show_reservations": "Vis reservationer",
-          "expose_personal_info": "Vis adresse, telefon og e-mail på sensorattributter"
+          "expose_personal_info": "Vis kontaktoplysninger på sensoren"
         },
         "data_description": {
-          "use_escrow_passphrase": "Krypter med den aktive RAM-escrow adgangskode (leveret via bibliotek_dk.unlock) uden at indtaste eller gemme adgangskoden.",
-          "encryption_passphrase": "Hvis angivet, krypteres legitimationsoplysninger med Scrypt + AES-256-GCM uden nøgle på disk. Du bliver bedt om at låse op efter hver genstart af Home Assistant.",
-          "expose_personal_info": "Slået fra som standard for at holde adresse, telefonnummer og e-mail ude af Home Assistants historik."
+          "use_escrow_passphrase": "Brug den krypteringsadgangskode, der allerede er tilgængelig i Home Assistants hukommelse, uden at indtaste den igen.",
+          "encryption_passphrase": "Lad feltet stå tomt for automatisk kryptering, medmindre du bruger en allerede oplåst krypteringsadgangskode. Hvis du indtaster en adgangskode, gemmes dine biblioteksoplysninger krypteret uden at gemme krypteringsnøglen. Du skal låse op igen efter hver genstart af Home Assistant.",
+          "expose_personal_info": "Vis adresse, telefonnummer og e-mail som sensorattributter. Slået fra som standard for at holde oplysningerne ude af Home Assistants historik."
         }
       },
       "reauth_confirm": {
         "title": "Lås op eller genautoriser Bibliotek",
-        "description": "Indtast din krypteringsadgangskode for at låse op i hukommelsen, eller indtast dine biblioteksoplysninger igen.",
+        "description": "Indtast din krypteringsadgangskode for at låse de gemte biblioteksoplysninger op, eller indtast dit lånernummer eller CPR-nummer og din pinkode for at logge ind igen.",
         "data": {
           "encryption_passphrase": "Krypteringsadgangskode",
-          "user_id": "CPR eller lånernummer",
-          "pincode": "PIN kode"
+          "user_id": "Lånernummer eller CPR-nummer",
+          "pincode": "Pinkode"
         }
       },
       "reconfigure": {
         "title": "Genkonfigurer Bibliotek",
-        "description": "Opdater dine biblioteksoplysninger eller skift mellem automatisk nøglefil og adgangskodekryptering.",
+        "description": "Opdater dine loginoplysninger til biblioteket, eller vælg, hvordan de krypteres.",
         "data": {
           "municipality": "Kommune",
-          "user_id": "CPR eller lånernummer",
-          "pincode": "PIN kode",
-          "use_escrow_passphrase": "Brug oplåst RAM-escrow adgangskode",
-          "encryption_passphrase": "Valgfri krypteringsadgangskode (lad stå tom for automatisk nøglefil)"
+          "user_id": "Lånernummer eller CPR-nummer",
+          "pincode": "Pinkode",
+          "use_escrow_passphrase": "Brug en allerede oplåst krypteringsadgangskode",
+          "encryption_passphrase": "Krypteringsadgangskode (valgfri)"
         },
         "data_description": {
-          "use_escrow_passphrase": "Krypter med den aktive RAM-escrow adgangskode (leveret via bibliotek_dk.unlock) uden at indtaste eller gemme adgangskoden."
+          "use_escrow_passphrase": "Brug den krypteringsadgangskode, der allerede er tilgængelig i Home Assistants hukommelse, uden at indtaste den igen.",
+          "encryption_passphrase": "Lad feltet stå tomt for automatisk kryptering, medmindre du bruger en allerede oplåst krypteringsadgangskode. Hvis du indtaster en adgangskode, gemmes dine biblioteksoplysninger krypteret uden at gemme krypteringsnøglen. Du skal låse op igen efter hver genstart af Home Assistant."
         }
       }
     }
@@ -67,15 +68,28 @@
         "data": {
           "update_interval": "Opdateringsinterval i minutter",
           "show_loans": "Vis lån",
-          "show_eloans": "Vis lån fra Biblo / eReolen",
+          "show_eloans": "Vis digitale lån (Biblo / eReolen)",
           "show_debts": "Vis gebyrer",
           "show_reservations": "Vis reservationer",
-          "expose_personal_info": "Vis adresse, telefon og e-mail på sensorattributter"
+          "expose_personal_info": "Vis kontaktoplysninger på sensoren"
+        },
+        "data_description": {
+          "expose_personal_info": "Vis adresse, telefonnummer og e-mail som sensorattributter. Slået fra som standard for at holde oplysningerne ude af Home Assistants historik."
         }
       }
     }
   },
   "services": {
+    "renew_all_loans": {
+      "name": "Forny alle lån, der kan fornyes",
+      "description": "Forny alle fysiske lån, der aktuelt kan fornyes, for én bibliotekskonto. Digitale lån medtages ikke; muligheden for fornyelse kontrolleres igen ved kaldet.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Konfigurationspost",
+          "description": "Den Bibliotek-konfigurationspost hvis fysiske lån skal fornyes."
+        }
+      }
+    },
     "renew_loans": {
       "name": "Forny lån",
       "description": "Forny et eller flere fysiske lån for en bibliotekskonto.",

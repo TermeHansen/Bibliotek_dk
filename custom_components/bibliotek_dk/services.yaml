@@ -1,17 +1,19 @@
-renew_loans:
-  name: Renew loans
-  description: Renew one or more physical loans for a library account.
+renew_all_loans:
   fields:
     config_entry_id:
-      name: Config entry
-      description: The Bibliotek configuration entry the loans belong to.
+      required: true
+      selector:
+        config_entry:
+          integration: bibliotek_dk
+
+renew_loans:
+  fields:
+    config_entry_id:
       required: true
       selector:
         config_entry:
           integration: bibliotek_dk
     loan_ids:
-      name: Loan ids
-      description: The loan ids to renew (the renew_id attribute on the loans sensor).
       required: true
       example: "1234567"
       selector:
@@ -19,21 +21,13 @@ renew_loans:
           multiple: true
 
 unlock:
-  name: Unlock encrypted accounts
-  description: >-
-    Supply an encryption passphrase in RAM to unlock passphrase-protected
-    Bibliotek accounts and act as the active RAM escrow for new accounts.
   fields:
     encryption_passphrase:
-      name: Encryption passphrase
-      description: Passphrase used to encrypt and unlock protected accounts in RAM.
       required: true
       selector:
         text:
           type: password
     config_entry_id:
-      name: Config entry
-      description: Optional Bibliotek configuration entry to target exclusively.
       required: false
       selector:
         config_entry:
