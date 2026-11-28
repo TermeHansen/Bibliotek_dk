@@ -6,6 +6,8 @@
 
 ### Changes
 
+* Clarify Danish/English setup, reconfiguration and privacy help. Explain that
+  passphrase mode stores encrypted login details but no encryption key on disk.
 * Follow upstream 0.10.0 credential encryption and privacy defaults. Identify
   main sensors by sensor_type rather than optional personal address data.
 * Keep action and field labels in translations only; services.yaml contains

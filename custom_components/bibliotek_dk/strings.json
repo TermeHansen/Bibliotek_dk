@@ -7,42 +7,43 @@
           "municipality": "[%key:common::config_flow::data::municipality%]",
           "user_id": "[%key:common::config_flow::data::user_id%]",
           "pincode": "[%key:common::config_flow::data::pincode%]",
-          "use_escrow_passphrase": "Use unlocked RAM escrow passphrase",
-          "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)",
+          "use_escrow_passphrase": "Use an already unlocked encryption passphrase",
+          "encryption_passphrase": "Encryption passphrase (optional)",
           "show_debts": "[%key:common::config_flow::data::show_debts%]",
           "show_loans": "[%key:common::config_flow::data::show_loans%]",
           "show_eloans": "[%key:common::config_flow::data::show_eloans%]",
           "show_reservations": "[%key:common::config_flow::data::show_reservations%]",
-          "expose_personal_info": "Expose address, phone, and email on sensor attributes",
+          "expose_personal_info": "Show contact details on the sensor",
           "update_interval": "[%key:common::config_flow::data::update_interval%]"
         },
         "data_description": {
-          "use_escrow_passphrase": "Encrypt with the active RAM escrow passphrase (provided via bibliotek_dk.unlock) without typing or storing the passphrase.",
-          "encryption_passphrase": "If set, credentials are encrypted with Scrypt + AES-256-GCM and nothing is written to disk. You will be prompted to unlock after every Home Assistant restart.",
-          "expose_personal_info": "Off by default to keep home address, phone number, and email out of the Home Assistant recorder."
+          "use_escrow_passphrase": "Use the encryption passphrase already available in Home Assistant memory without entering it again.",
+          "encryption_passphrase": "Leave blank for automatic encryption, unless you use an already unlocked passphrase. If you enter a passphrase, your library login details are stored encrypted without saving the encryption key. You must unlock them again after each Home Assistant restart.",
+          "expose_personal_info": "Include your address, phone number and email in sensor attributes. Off by default to keep these details out of Home Assistant history."
         }
       },
       "reauth_confirm": {
         "title": "Unlock or re-authenticate Bibliotek",
-        "description": "Enter your encryption passphrase to unlock credentials in memory, or re-enter your library credentials.",
+        "description": "Enter your encryption passphrase to unlock the stored library login details, or enter your library card number or CPR number and PIN to sign in again.",
         "data": {
           "encryption_passphrase": "Encryption passphrase",
-          "user_id": "CPR or library number",
+          "user_id": "Library card number or CPR number",
           "pincode": "PIN code"
         }
       },
       "reconfigure": {
         "title": "Reconfigure Bibliotek",
-        "description": "Update your library credentials or switch between automatic keyfile and passphrase encryption.",
+        "description": "Update your library login details or choose how they are encrypted.",
         "data": {
           "municipality": "Municipality",
-          "user_id": "CPR or library number",
+          "user_id": "Library card number or CPR number",
           "pincode": "PIN code",
-          "use_escrow_passphrase": "Use unlocked RAM escrow passphrase",
-          "encryption_passphrase": "Optional encryption passphrase (leave blank for automatic keyfile)"
+          "use_escrow_passphrase": "Use an already unlocked encryption passphrase",
+          "encryption_passphrase": "Encryption passphrase (optional)"
         },
         "data_description": {
-          "use_escrow_passphrase": "Encrypt with the active RAM escrow passphrase (provided via bibliotek_dk.unlock) without typing or storing the passphrase."
+          "use_escrow_passphrase": "Use the encryption passphrase already available in Home Assistant memory without entering it again.",
+          "encryption_passphrase": "Leave blank for automatic encryption, unless you use an already unlocked passphrase. If you enter a passphrase, your library login details are stored encrypted without saving the encryption key. You must unlock them again after each Home Assistant restart."
         }
       }
     },
@@ -67,10 +68,13 @@
         "data": {
           "update_interval": "Update interval in minutes",
           "show_loans": "Show loans",
-          "show_eloans": "Show loans from Biblo / eReolen",
-          "show_debts": "Show debts",
+          "show_eloans": "Show digital loans (Biblo / eReolen)",
+          "show_debts": "Show fees",
           "show_reservations": "Show reservations",
-          "expose_personal_info": "Expose address, phone, and email on sensor attributes"
+          "expose_personal_info": "Show contact details on the sensor"
+        },
+        "data_description": {
+          "expose_personal_info": "Include your address, phone number and email in sensor attributes. Off by default to keep these details out of Home Assistant history."
         }
       }
     }
